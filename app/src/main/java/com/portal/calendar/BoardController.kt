@@ -35,11 +35,23 @@ import kotlin.math.roundToInt
  * Visual language: warm paper background, white cards with soft shadows,
  * solid per-person color pills, big friendly date numbers, coral accent.
  */
-class BoardController(private val ctx: Context) {
+class BoardController(private val baseCtx: Context) {
 
     private val store get() = App.instance.store
     private val sync get() = App.instance.sync
     private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * Everything is built against a context whose density is multiplied by the
+     * user's UI-scale preference — one knob that uniformly zooms every dp and
+     * sp on the board (10″ Portals render noticeably smaller than the Plus).
+     */
+    private val uiScale: Float = store.uiScale()
+    private val ctx: Context = if (uiScale == 1f) baseCtx else {
+        val conf = android.content.res.Configuration(baseCtx.resources.configuration)
+        conf.densityDpi = (conf.densityDpi * uiScale).toInt()
+        baseCtx.createConfigurationContext(conf)
+    }
 
     /** When set, a ✕ button appears next to ⚙ and invokes this. */
     var onExit: (() -> Unit)? = null
@@ -119,9 +131,14 @@ class BoardController(private val ctx: Context) {
         }
     }
     private val configListener: () -> Unit = {
-        statusLine = "Config updated — syncing…"
-        renderAll()
-        doSync()
+        if (store.uiScale() != uiScale) {
+            // Scale changed (from the config page or ⚙) — rebuild the whole UI.
+            (baseCtx as? android.app.Activity)?.recreate()
+        } else {
+            statusLine = "Config updated — syncing…"
+            renderAll()
+            doSync()
+        }
     }
 
     fun start() {
@@ -523,6 +540,27 @@ class BoardController(private val ctx: Context) {
             gravity = Gravity.CENTER
         }, lpMatchWrap(top = dp(6)))
 
+        val sizeRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        sizeRow.addView(TextView(ctx).apply {
+            text = "Display size"
+            textSize = 14f
+            setTextColor(MUTED)
+        })
+        sizeRow.addView(navButton("A−") { changeScale(-0.1f) })
+        sizeRow.addView(TextView(ctx).apply {
+            text = "${(uiScale * 100).roundToInt()}%"
+            textSize = 15f
+            setTextColor(INK)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            layoutParams = LinearLayout.LayoutParams(dp(64), WRAP).apply { leftMargin = dp(8) }
+        })
+        sizeRow.addView(navButton("A+") { changeScale(+0.1f) })
+        card.addView(sizeRow, lpMatchWrap(top = dp(12)))
+
         val buttons = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         buttons.addView(navButton("Sync now") {
             statusLine = "Syncing…"
@@ -753,6 +791,11 @@ class BoardController(private val ctx: Context) {
                 }
             }
         }.start()
+    }
+
+    private fun changeScale(delta: Float) {
+        store.setUiScale(uiScale + delta)
+        (baseCtx as? android.app.Activity)?.recreate()
     }
 
     private fun hideKeyboard() {

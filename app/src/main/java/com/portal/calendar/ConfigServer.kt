@@ -105,6 +105,13 @@ class ConfigServer(
             val count = App.instance.sync.validateFeed(url)
             json("{\"ok\":true,\"events\":$count}")
         }
+        s.uri == "/api/scale" && s.method == Method.GET ->
+            json("{\"scale\":${store.uiScale()}}")
+        s.uri == "/api/scale" && s.method == Method.POST -> {
+            store.setUiScale(org.json.JSONObject(readBody(s)).getDouble("scale").toFloat())
+            onConfigChanged() // board notices the change and rebuilds itself
+            json("{\"scale\":${store.uiScale()}}")
+        }
         s.uri == "/api/screensaver" && s.method == Method.GET ->
             json(Screensaver.statusJson(ctx))
         s.uri == "/api/screensaver" && s.method == Method.POST -> {

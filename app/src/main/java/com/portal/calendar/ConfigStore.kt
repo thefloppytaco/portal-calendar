@@ -47,6 +47,13 @@ class ConfigStore(ctx: Context) {
         prefs.edit().putString(KEY, clean.toString()).apply()
     }
 
+    /** Global UI zoom (1.0 = designed-for-Portal+ size; 10″ Portals want ~1.1–1.25). */
+    fun uiScale(): Float = prefs.getFloat("ui_scale", 1f)
+
+    fun setUiScale(v: Float) {
+        prefs.edit().putFloat("ui_scale", v.coerceIn(0.7f, 1.6f)).apply()
+    }
+
     companion object {
         private const val KEY = "feeds"
     }

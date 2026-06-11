@@ -134,6 +134,12 @@
   </div>
 
   <div class="card">
+    <strong>Display size</strong>
+    <div id="scaleRow" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;"></div>
+    <div style="font-size:13px;color:#737983;margin-top:8px;">100% suits the Portal+; the 10″ Portal usually looks best at 110–125%.</div>
+  </div>
+
+  <div class="card">
     <strong>Two-way sync</strong>
     <p style="font-size:13px;color:#737983;margin:6px 0 10px;">Connect an account so events can be added from this page. Events are created in the real calendar, so they sync to everyone's devices.</p>
 
@@ -454,10 +460,32 @@ async function addEvent(){
   } catch(e){ show('evMsg', e.message, false); }
 }
 
+const SCALES = [0.8, 0.9, 1.0, 1.1, 1.25, 1.4];
+
+function renderScale(current){
+  document.getElementById('scaleRow').innerHTML = SCALES.map(s => {
+    const active = Math.abs(s - current) < 0.05;
+    return `<button class="${active ? '' : 'ghost'}" style="flex:1;min-width:60px;padding:10px 0;" onclick="setScale(${s})">${Math.round(s*100)}%</button>`;
+  }).join('');
+}
+
+async function loadScale(){
+  try { renderScale((await (await fetch('/api/scale')).json()).scale); } catch(e){}
+}
+
+async function setScale(s){
+  try {
+    const r = await fetch('/api/scale', {method:'POST', body: JSON.stringify({scale: s})});
+    renderScale((await r.json()).scale);
+    msg('Display size updated — the board redraws itself', true);
+  } catch(e){ msg(e.message, false); }
+}
+
 document.querySelectorAll('.selfurl').forEach(e => e.textContent = location.host);
 load();
 loadSaver();
 loadWriters();
+loadScale();
 </script>
 </body>
 </html>
