@@ -41,11 +41,13 @@
   }
   button.ghost { background: #eae6dc; color: #333a45; }
   button.del { background: none; color: #f0584c; font-size: 22px; padding: 4px 8px; flex: none; }
-  input[type=text], input[type=url], input[type=date], input[type=time], select {
+  input[type=text], input[type=url], input[type=date], input[type=time],
+  input[type=number], select, textarea {
     width: 100%; font: inherit; color: #333a45;
     background: #fbfaf6; border: 1px solid #ddd8cc; border-radius: 12px;
     padding: 12px; margin: 6px 0 12px;
   }
+  textarea { min-height: 72px; resize: vertical; }
   input[type=color] {
     width: 52px; height: 40px; border: none; background: none; padding: 0;
     vertical-align: middle;
@@ -73,6 +75,7 @@
     <button data-tabbtn="calendar" onclick="showTab('calendar')" style="flex:1;">Calendar</button>
     <button data-tabbtn="chores" class="ghost" onclick="showTab('chores')" style="flex:1;">Chores</button>
     <button data-tabbtn="lists" class="ghost" onclick="showTab('lists')" style="flex:1;">Lists</button>
+    <button data-tabbtn="meals" class="ghost" onclick="showTab('meals')" style="flex:1;">Meals</button>
     <button data-tabbtn="family" class="ghost" onclick="showTab('family')" style="flex:1;">Family</button>
     <button data-tabbtn="settings" class="ghost" onclick="showTab('settings')" style="flex:1;">Settings</button>
   </div>
@@ -111,6 +114,25 @@
       <button onclick="addListP()" style="flex:none;">Add list</button>
     </div>
     <div id="listsMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="meals">
+    <strong>This week's meals</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 8px;">Type a meal and press Enter — start with a recipe's exact name to link it. The board's Meals tab shows the week.</div>
+    <div id="mealPlan"></div>
+    <div id="mealMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="meals">
+    <strong>Recipe box</strong>
+    <div id="recipeBox" style="margin-top:8px;"></div>
+    <div style="border-top:1px solid #efece4;margin-top:12px;padding-top:12px;">
+      <input type="text" id="rcTitle" placeholder="Recipe name" autocomplete="off">
+      <textarea id="rcIngredients" placeholder="Ingredients (one per line)"></textarea>
+      <textarea id="rcSteps" placeholder="Steps"></textarea>
+      <button style="width:100%;" onclick="addRecipe()">Add recipe</button>
+    </div>
+    <div id="recipeMsg" class="msgline"></div>
   </div>
 
   <div class="card" data-tab="family">
@@ -594,6 +616,7 @@ function showTab(name){
   if (name === 'lists') loadListsP();
   if (name === 'family') loadMembers();
   if (name === 'chores') loadChores();
+  if (name === 'meals') loadMeals();
 }
 
 // ----- shared lists -----
@@ -741,6 +764,79 @@ function addChore(){
     days: choreDays});
   document.getElementById('chTitle').value = '';
   show('choreMsg', '✓ Added', true);
+}
+
+// ----- meals -----
+const SLOTS = [['breakfast','🍳'],['lunch','🥪'],['dinner','🍝'],['snack','🍎']];
+let mealState = {plan:[], recipes:[]};
+
+function mealText(date, slot){
+  const e = mealState.plan.find(p => p.date === date && p.slot === slot);
+  return e ? e.text : '';
+}
+
+function renderMeals(){
+  const days = [];
+  const now = new Date();
+  for (let i = 0; i < 7; i++){
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    days.push(d);
+  }
+  document.getElementById('mealPlan').innerHTML = days.map(d => {
+    const date = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const label = d.toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric'});
+    return `<div style="margin-bottom:14px;">
+      <strong style="font-size:15px;">${esc(label)}</strong>
+      ${SLOTS.map(([slot, emoji]) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+          <span style="width:26px;text-align:center;">${emoji}</span>
+          <input type="text" value="${esc(mealText(date, slot))}" list="recipeNames" autocomplete="off"
+                 placeholder="${slot}" style="margin:0;padding:8px 12px;"
+                 onchange="setMeal('${date}','${slot}',this.value)">
+        </div>`).join('')}
+    </div>`;
+  }).join('') + `<datalist id="recipeNames">${mealState.recipes.map(r => `<option value="${esc(r.title)}">`).join('')}</datalist>`;
+
+  document.getElementById('recipeBox').innerHTML = mealState.recipes.map(r => `
+    <details style="border-bottom:1px solid #efece4;padding:6px 0;">
+      <summary style="display:flex;align-items:center;gap:8px;">
+        <span class="grow" style="flex:1;font-weight:600;">${esc(r.title)}</span>
+        <button class="del" onclick="event.preventDefault();mealAct({action:'deleteRecipe',recipeId:'${esc(r.id)}'})">✕</button>
+      </summary>
+      <div style="font-size:14px;color:#4d535e;white-space:pre-wrap;margin:6px 0 4px;">${esc(r.ingredients || '')}${r.ingredients && r.steps ? '\n\n' : ''}${esc(r.steps || '')}</div>
+    </details>`).join('') || '<div class="empty">No recipes yet</div>';
+}
+
+async function loadMeals(){
+  try { mealState = await (await fetch('/api/meals')).json(); renderMeals(); }
+  catch(e){ show('mealMsg', e.message, false); }
+}
+
+async function mealAct(action){
+  try {
+    const r = await fetch('/api/meals', {method:'POST', body: JSON.stringify(action)});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    mealState = body; renderMeals();
+  } catch(e){ show('mealMsg', e.message, false); }
+}
+
+function setMeal(date, slot, text){
+  // Link a recipe when the text matches one by name.
+  const match = mealState.recipes.find(r => r.title.toLowerCase() === text.trim().toLowerCase());
+  mealAct({action:'setMeal', date, slot, text: text.trim(), recipeId: match ? match.id : ''});
+}
+
+function addRecipe(){
+  const title = document.getElementById('rcTitle').value.trim();
+  if (!title) return show('recipeMsg', 'Give the recipe a name', false);
+  mealAct({action:'addRecipe', title,
+    ingredients: document.getElementById('rcIngredients').value,
+    steps: document.getElementById('rcSteps').value});
+  document.getElementById('rcTitle').value = '';
+  document.getElementById('rcIngredients').value = '';
+  document.getElementById('rcSteps').value = '';
+  show('recipeMsg', '✓ Added', true);
 }
 
 // ----- kid lock -----

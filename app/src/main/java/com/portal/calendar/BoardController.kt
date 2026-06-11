@@ -71,6 +71,7 @@ class BoardController(private val baseCtx: Context) {
     private lateinit var tabPanels: List<View>
     private lateinit var listsTab: ListsTab
     private lateinit var choresTab: ChoresTab
+    private lateinit var mealsTab: MealsTab
 
     private lateinit var clockText: TextView
     private lateinit var dateText: TextView
@@ -182,6 +183,7 @@ class BoardController(private val baseCtx: Context) {
             0 -> renderCalendar() // weather in week headers
             1 -> choresTab.render()
             2 -> listsTab.render()
+            3 -> mealsTab.render()
         }
     }
 
@@ -505,9 +507,13 @@ class BoardController(private val baseCtx: Context) {
         area.addView(listsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
         choresTab = ChoresTab(ctx)
         area.addView(choresTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
-        val mealsPlaceholder = placeholderPanel("Meal planning is coming in the next update")
-        area.addView(mealsPlaceholder, FrameLayout.LayoutParams(MATCH, MATCH))
-        tabPanels = listOf(weekPanel, choresTab.view, listsTab.view, mealsPlaceholder)
+        mealsTab = MealsTab(ctx) { title, body ->
+            detailTitle.text = title
+            detailBody.text = body
+            detailOverlay.visibility = View.VISIBLE
+        }
+        area.addView(mealsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
+        tabPanels = listOf(weekPanel, choresTab.view, listsTab.view, mealsTab.view)
 
         // Nav row -------------------------------------------------------
         val nav = LinearLayout(ctx).apply {
@@ -674,6 +680,7 @@ class BoardController(private val baseCtx: Context) {
             0 -> { renderCalendar(); updateEmptyState() }
             1 -> choresTab.render()
             2 -> listsTab.render()
+            3 -> mealsTab.render()
         }
     }
 
