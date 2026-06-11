@@ -69,6 +69,12 @@ class ConfigServer(
             json(Chores.statusJson(ctx))
         s.uri == "/api/chores" && s.method == Method.POST ->
             json(Chores.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/pin" && s.method == Method.GET ->
+            json("{\"enabled\":${store.pin().isNotEmpty()}}")
+        s.uri == "/api/pin" && s.method == Method.POST -> {
+            store.setPin(org.json.JSONObject(readBody(s)).optString("pin"))
+            json("{\"enabled\":${store.pin().isNotEmpty()}}")
+        }
         s.uri == "/api/weather" && s.method == Method.GET ->
             json(Weather.statusJson(ctx))
         s.uri == "/api/weather/search" && s.method == Method.POST ->

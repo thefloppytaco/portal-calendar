@@ -47,6 +47,15 @@ class ConfigStore(ctx: Context) {
         prefs.edit().putString(KEY, clean.toString()).apply()
     }
 
+    /** Kid-lock PIN; empty = lock disabled. Gates edits on the board only. */
+    fun pin(): String = prefs.getString("kid_pin", "") ?: ""
+
+    fun setPin(v: String) {
+        if (v.isNotEmpty() && !v.matches(Regex("\\d{4}")))
+            throw IllegalArgumentException("the PIN must be exactly 4 digits")
+        prefs.edit().putString("kid_pin", v).apply()
+    }
+
     /** Global UI zoom (1.0 = designed-for-Portal+ size; 10″ Portals want ~1.1–1.25). */
     fun uiScale(): Float = prefs.getFloat("ui_scale", 1f)
 

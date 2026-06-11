@@ -193,6 +193,19 @@
   </div>
 
   <div class="card" data-tab="settings">
+    <strong>Kid lock</strong>
+    <div id="pinStatus" style="font-size:14px;color:#4d535e;margin:8px 0;"></div>
+    <div class="row2">
+      <input type="text" id="pinInput" placeholder="4-digit PIN" maxlength="4" inputmode="numeric"
+             autocomplete="off" style="margin:0;">
+      <button class="ghost" style="flex:none;" onclick="setPin()">Set PIN</button>
+      <button class="ghost" style="flex:none;" onclick="clearPin()">Remove</button>
+    </div>
+    <div style="font-size:13px;color:#737983;margin-top:6px;">With a PIN set, adding events, opening Settings, and deleting lists on the Portal's touchscreen ask for it. Kids can still check off chores and list items. This page stays unlocked.</div>
+    <div id="pinMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
     <strong>Weather</strong>
     <div id="wxStatus" style="font-size:14px;color:#4d535e;margin:8px 0;"></div>
     <div class="row2">
@@ -730,6 +743,35 @@ function addChore(){
   show('choreMsg', '✓ Added', true);
 }
 
+// ----- kid lock -----
+function applyPin(st){
+  document.getElementById('pinStatus').textContent = st.enabled
+    ? 'Kid lock is ON — the board asks for the PIN before edits.'
+    : 'Kid lock is off.';
+}
+async function loadPin(){
+  try { applyPin(await (await fetch('/api/pin')).json()); } catch(e){}
+}
+async function setPin(){
+  const pin = document.getElementById('pinInput').value.trim();
+  if (!/^\d{4}$/.test(pin)) return show('pinMsg', 'Enter exactly 4 digits', false);
+  try {
+    const r = await fetch('/api/pin', {method:'POST', body: JSON.stringify({pin})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    applyPin(body);
+    document.getElementById('pinInput').value = '';
+    show('pinMsg', '✓ PIN set', true);
+  } catch(e){ show('pinMsg', e.message, false); }
+}
+async function clearPin(){
+  try {
+    const r = await fetch('/api/pin', {method:'POST', body: JSON.stringify({pin:''})});
+    applyPin(await r.json());
+    show('pinMsg', 'Kid lock removed', true);
+  } catch(e){ show('pinMsg', e.message, false); }
+}
+
 // ----- weather -----
 let wxState = {unit:'f'};
 
@@ -826,6 +868,7 @@ loadSaver();
 loadWriters();
 loadScale();
 loadWx();
+loadPin();
 </script>
 </body>
 </html>

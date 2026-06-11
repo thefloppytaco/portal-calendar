@@ -211,6 +211,9 @@ class BoardController(private val baseCtx: Context) {
     /** Returns true if an overlay was open and got closed (for Back handling). */
     fun closeOverlays(): Boolean {
         var closed = false
+        if (pinOverlay.visibility == View.VISIBLE) {
+            pinOverlay.visibility = View.GONE; closed = true
+        }
         if (detailOverlay.visibility == View.VISIBLE) {
             detailOverlay.visibility = View.GONE; closed = true
         }
@@ -272,7 +275,105 @@ class BoardController(private val baseCtx: Context) {
         root.addView(addOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         detailOverlay = buildDetailOverlay()
         root.addView(detailOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        pinOverlay = buildPinOverlay()
+        root.addView(pinOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         return root
+    }
+
+    // ------------------------------------------------------------ kid lock
+
+    private lateinit var pinOverlay: FrameLayout
+    private lateinit var pinDots: TextView
+    private var pinEntry = ""
+    private var pinAction: (() -> Unit)? = null
+
+    /** Runs [action] directly when no PIN is set; otherwise asks for it. */
+    private fun requirePin(action: () -> Unit) {
+        if (store.pin().isEmpty()) { action(); return }
+        pinEntry = ""
+        pinAction = action
+        updatePinDots()
+        pinOverlay.visibility = View.VISIBLE
+    }
+
+    private fun buildPinOverlay(): FrameLayout {
+        val scrim = FrameLayout(ctx).apply {
+            setBackgroundColor(SCRIM)
+            visibility = View.GONE
+            setOnClickListener { visibility = View.GONE }
+        }
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = rounded(CARD, 20)
+            elevation = dp(10).toFloat()
+            setPadding(dp(34), dp(22), dp(34), dp(18))
+            isClickable = true
+        }
+        card.addView(TextView(ctx).apply {
+            text = "Parents only 🔒"
+            textSize = 18f
+            setTextColor(INK)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }, lpMatchWrap(bottom = dp(10)))
+        pinDots = TextView(ctx).apply {
+            textSize = 26f
+            setTextColor(INK)
+            gravity = Gravity.CENTER
+            letterSpacing = 0.3f
+        }
+        card.addView(pinDots, lpMatchWrap(bottom = dp(12)))
+
+        val keys = listOf("1","2","3","4","5","6","7","8","9","⌫","0","✕")
+        for (r in 0..3) {
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            for (c in 0..2) {
+                val label = keys[r * 3 + c]
+                row.addView(TextView(ctx).apply {
+                    text = label
+                    textSize = 22f
+                    setTextColor(INK)
+                    gravity = Gravity.CENTER
+                    background = rounded(PILL, 30)
+                    setOnClickListener { pinKey(label) }
+                }, LinearLayout.LayoutParams(dp(62), dp(62)).apply {
+                    leftMargin = dp(5); rightMargin = dp(5); topMargin = dp(5); bottomMargin = dp(5)
+                })
+            }
+            card.addView(row)
+        }
+        scrim.addView(card, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        return scrim
+    }
+
+    private fun pinKey(label: String) {
+        when (label) {
+            "✕" -> { pinOverlay.visibility = View.GONE; return }
+            "⌫" -> pinEntry = pinEntry.dropLast(1)
+            else -> if (pinEntry.length < 4) pinEntry += label
+        }
+        updatePinDots()
+        if (pinEntry.length == 4) {
+            if (pinEntry == store.pin()) {
+                pinOverlay.visibility = View.GONE
+                pinAction?.invoke()
+                pinAction = null
+            } else {
+                pinDots.setTextColor(ACCENT)
+                handler.postDelayed({
+                    pinEntry = ""
+                    pinDots.setTextColor(INK)
+                    updatePinDots()
+                }, 450)
+            }
+        }
+    }
+
+    private fun updatePinDots() {
+        pinDots.text = "●".repeat(pinEntry.length) + "○".repeat(4 - pinEntry.length)
     }
 
     /** Back to the calendar tab, week view, current week (idle takeover lands here). */
@@ -350,7 +451,7 @@ class BoardController(private val baseCtx: Context) {
             textSize = 14f
             setTextColor(MUTED)
             setPadding(0, dp(8), dp(12), dp(2))
-            setOnClickListener { showSettingsOverlay() }
+            setOnClickListener { requirePin { showSettingsOverlay() } }
         }, LinearLayout.LayoutParams(0, WRAP, 1f))
         exitButton = TextView(ctx).apply {
             text = "✕"
@@ -400,7 +501,7 @@ class BoardController(private val baseCtx: Context) {
         area.addView(weekPanel, FrameLayout.LayoutParams(MATCH, MATCH))
 
         // Other tabs ---------------------------------------------------------
-        listsTab = ListsTab(ctx)
+        listsTab = ListsTab(ctx) { action -> requirePin(action) }
         area.addView(listsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
         choresTab = ChoresTab(ctx)
         area.addView(choresTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -419,7 +520,7 @@ class BoardController(private val baseCtx: Context) {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
         nav.addView(monthLabel, LinearLayout.LayoutParams(0, WRAP, 1f))
-        nav.addView(accentButton("+ Add") { showAddOverlay(Calendar.getInstance()) })
+        nav.addView(accentButton("+ Add") { requirePin { showAddOverlay(Calendar.getInstance()) } })
         nav.addView(spacer(dp(10)))
         val toggles = ArrayList<TextView>()
         listOf("Day", "Week", "Month", "Plan").forEachIndexed { i, label ->
@@ -1092,7 +1193,7 @@ class BoardController(private val baseCtx: Context) {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
         }
-        btnRow.addView(accentButton("+ Add") { showAddOverlay(dayOverlayDate) })
+        btnRow.addView(accentButton("+ Add") { requirePin { showAddOverlay(dayOverlayDate) } })
         btnRow.addView(navButton("Close") { dayOverlay.visibility = View.GONE })
         card.addView(btnRow, lpMatchWrap(top = dp(12)))
         scrim.addView(card, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))

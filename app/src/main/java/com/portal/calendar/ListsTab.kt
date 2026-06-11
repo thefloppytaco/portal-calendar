@@ -23,7 +23,10 @@ import kotlin.math.roundToInt
  * items on the right with big tap-to-check rows, and inline inputs for adding
  * lists/items right on the touchscreen.
  */
-class ListsTab(private val ctx: Context) {
+class ListsTab(
+    private val ctx: Context,
+    private val gate: (action: () -> Unit) -> Unit = { it() }
+) {
 
     private var selectedId: String? = null
     private lateinit var rail: LinearLayout
@@ -105,9 +108,11 @@ class ListsTab(private val ctx: Context) {
         }
         header.addView(clearDoneBtn)
         header.addView(pill("Delete list") {
-            selectedId?.let {
-                runCatching { FamilyLists.mutate(ctx, JSONObject().put("action", "deleteList").put("listId", it)) }
-                selectedId = null
+            gate {
+                selectedId?.let {
+                    runCatching { FamilyLists.mutate(ctx, JSONObject().put("action", "deleteList").put("listId", it)) }
+                    selectedId = null
+                }
             }
         })
         itemsCol.addView(header, lp(bottom = dp(10)))
