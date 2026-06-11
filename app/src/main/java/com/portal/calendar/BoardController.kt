@@ -35,11 +35,23 @@ import kotlin.math.roundToInt
  * Visual language: warm paper background, white cards with soft shadows,
  * solid per-person color pills, big friendly date numbers, coral accent.
  */
-class BoardController(private val ctx: Context) {
+class BoardController(private val baseCtx: Context) {
 
     private val store get() = App.instance.store
     private val sync get() = App.instance.sync
     private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * Everything is built against a context whose density is multiplied by the
+     * user's UI-scale preference — one knob that uniformly zooms every dp and
+     * sp on the board (10″ Portals render noticeably smaller than the Plus).
+     */
+    private val uiScale: Float = store.uiScale()
+    private val ctx: Context = if (uiScale == 1f) baseCtx else {
+        val conf = android.content.res.Configuration(baseCtx.resources.configuration)
+        conf.densityDpi = (conf.densityDpi * uiScale).toInt()
+        baseCtx.createConfigurationContext(conf)
+    }
 
     /** When set, a ✕ button appears next to ⚙ and invokes this. */
     var onExit: (() -> Unit)? = null
@@ -47,9 +59,18 @@ class BoardController(private val ctx: Context) {
     private var events: List<EventInstance> = emptyList()
     private var weekOffset = 0
     private var monthOffset = 0
-    private var isMonthMode = false
+    private var dayOffset = 0
+    private var scheduleOffset = 0
+    private var viewMode = VIEW_WEEK
     private var lastDayStamp = ""
     private var statusLine = "Starting…"
+
+    // Top-level tabs: 0=Calendar 1=Chores 2=Lists 3=Meals
+    private var currentTab = 0
+    private lateinit var tabButtons: List<TextView>
+    private lateinit var tabPanels: List<View>
+    private lateinit var listsTab: ListsTab
+    private lateinit var choresTab: ChoresTab
 
     private lateinit var clockText: TextView
     private lateinit var dateText: TextView
@@ -63,9 +84,12 @@ class BoardController(private val ctx: Context) {
     private lateinit var dayColumns: List<LinearLayout>
     private lateinit var weekContainer: LinearLayout
     private lateinit var monthContainer: LinearLayout
+    private lateinit var dayBox: LinearLayout
+    private lateinit var dayContainer: ScrollView
+    private lateinit var scheduleBox: LinearLayout
+    private lateinit var scheduleContainer: ScrollView
     private lateinit var monthCells: List<MonthCell>
-    private lateinit var weekToggle: TextView
-    private lateinit var monthToggle: TextView
+    private lateinit var viewToggles: List<TextView>
     private lateinit var weekPanel: LinearLayout
     private lateinit var setupPanel: LinearLayout
     private lateinit var setupQr: ImageView
@@ -119,13 +143,48 @@ class BoardController(private val ctx: Context) {
         }
     }
     private val configListener: () -> Unit = {
-        statusLine = "Config updated — syncing…"
-        renderAll()
-        doSync()
+        if (store.uiScale() != uiScale) {
+            // Scale changed (from the config page or ⚙) — rebuild the whole UI.
+            (baseCtx as? android.app.Activity)?.recreate()
+        } else {
+            // Commit at the unchanged value: no rebuild happens, so make sure
+            // any live-preview transform is cleared.
+            contentRow.scaleX = 1f
+            contentRow.scaleY = 1f
+            statusLine = "Config updated — syncing…"
+            renderAll()
+            doSync()
+        }
+    }
+
+    /**
+     * Live zoom while a slider is being dragged: a cheap GPU transform of the
+     * board content (overlays stay unscaled). The real re-layout happens once,
+     * on [commitScale].
+     */
+    fun previewScale(target: Float) {
+        val f = target.coerceIn(0.7f, 1.6f) / uiScale
+        contentRow.scaleX = f
+        contentRow.scaleY = f
+    }
+
+    fun commitScale(target: Float) {
+        store.setUiScale(target)
+        (baseCtx as? android.app.Activity)?.recreate()
+    }
+
+    private val dataListener: () -> Unit = {
+        renderToday() // sidebar chores widget lives there
+        when (currentTab) {
+            1 -> choresTab.render()
+            2 -> listsTab.render()
+        }
     }
 
     fun start() {
+        App.instance.activeBoard = this
         App.instance.addConfigListener(configListener)
+        App.instance.addDataListener(dataListener)
         exitButton.visibility = if (onExit != null) View.VISIBLE else View.GONE
         renderAll()
         handler.post(clockTick)
@@ -135,6 +194,8 @@ class BoardController(private val ctx: Context) {
     fun stop() {
         handler.removeCallbacksAndMessages(null)
         App.instance.removeConfigListener(configListener)
+        App.instance.removeDataListener(dataListener)
+        if (App.instance.activeBoard === this) App.instance.activeBoard = null
     }
 
     /** Returns true if an overlay was open and got closed (for Back handling). */
@@ -178,6 +239,8 @@ class BoardController(private val ctx: Context) {
 
     private fun dp(v: Int): Int = (v * ctx.resources.displayMetrics.density).roundToInt()
 
+    private lateinit var contentRow: LinearLayout
+
     private fun buildUi(): FrameLayout {
         val root = FrameLayout(ctx)
         root.setBackgroundColor(BG)
@@ -185,6 +248,7 @@ class BoardController(private val ctx: Context) {
         val row = LinearLayout(ctx)
         row.orientation = LinearLayout.HORIZONTAL
         root.addView(row, FrameLayout.LayoutParams(MATCH, MATCH))
+        contentRow = row
 
         row.addView(buildSidebar(), LinearLayout.LayoutParams(dp(300), MATCH))
         row.addView(buildMainArea(), LinearLayout.LayoutParams(0, MATCH, 1f))
@@ -200,12 +264,15 @@ class BoardController(private val ctx: Context) {
         return root
     }
 
-    /** Back to week view of the current week (idle takeover always lands here). */
+    /** Back to the calendar tab, week view, current week (idle takeover lands here). */
     fun resetView() {
         weekOffset = 0
         monthOffset = 0
+        dayOffset = 0
+        scheduleOffset = 0
         closeOverlays()
-        if (isMonthMode) setMode(false) else renderCalendar()
+        if (currentTab != 0) setTab(0)
+        setView(VIEW_WEEK)
     }
 
     private fun buildSidebar(): View {
@@ -281,13 +348,48 @@ class BoardController(private val ctx: Context) {
     }
 
     private fun buildMainArea(): View {
+        val outer = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+
+        // Top-level tab strip ---------------------------------------------
+        val tabRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(22), dp(12), dp(22), 0)
+        }
+        val tabs = ArrayList<TextView>()
+        listOf("Calendar", "Chores", "Lists", "Meals").forEachIndexed { i, label ->
+            val t = TextView(ctx).apply {
+                text = label
+                textSize = 15f
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setPadding(dp(18), dp(8), dp(18), dp(8))
+                setOnClickListener { setTab(i) }
+            }
+            tabRow.addView(t, LinearLayout.LayoutParams(WRAP, WRAP).apply {
+                rightMargin = dp(8)
+            })
+            tabs.add(t)
+        }
+        tabButtons = tabs
+        outer.addView(tabRow, lpMatchWrap())
+
         val area = FrameLayout(ctx)
+        outer.addView(area, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
         weekPanel = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(18), dp(22), dp(16))
+            setPadding(dp(22), dp(10), dp(22), dp(16))
         }
         area.addView(weekPanel, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        // Other tabs ---------------------------------------------------------
+        listsTab = ListsTab(ctx)
+        area.addView(listsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
+        choresTab = ChoresTab(ctx)
+        area.addView(choresTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
+        val mealsPlaceholder = placeholderPanel("Meal planning is coming in the next update")
+        area.addView(mealsPlaceholder, FrameLayout.LayoutParams(MATCH, MATCH))
+        tabPanels = listOf(weekPanel, choresTab.view, listsTab.view, mealsPlaceholder)
 
         // Nav row -------------------------------------------------------
         val nav = LinearLayout(ctx).apply {
@@ -302,14 +404,20 @@ class BoardController(private val ctx: Context) {
         nav.addView(monthLabel, LinearLayout.LayoutParams(0, WRAP, 1f))
         nav.addView(accentButton("+ Add") { showAddOverlay(Calendar.getInstance()) })
         nav.addView(spacer(dp(10)))
-        weekToggle = navButton("Week") { setMode(false) }
-        monthToggle = navButton("Month") { setMode(true) }
-        nav.addView(weekToggle)
-        nav.addView(monthToggle)
+        val toggles = ArrayList<TextView>()
+        listOf("Day", "Week", "Month", "Plan").forEachIndexed { i, label ->
+            val t = navButton(label) { setView(i) }
+            toggles.add(t)
+            nav.addView(t)
+        }
+        viewToggles = toggles
         nav.addView(spacer(dp(10)))
-        nav.addView(navButton("‹") { if (isMonthMode) monthOffset-- else weekOffset--; renderCalendar() })
-        nav.addView(navButton("Today") { weekOffset = 0; monthOffset = 0; renderCalendar() })
-        nav.addView(navButton("›") { if (isMonthMode) monthOffset++ else weekOffset++; renderCalendar() })
+        nav.addView(navButton("‹") { moveOffset(-1); renderCalendar() })
+        nav.addView(navButton("Today") {
+            weekOffset = 0; monthOffset = 0; dayOffset = 0; scheduleOffset = 0
+            renderCalendar()
+        })
+        nav.addView(navButton("›") { moveOffset(1); renderCalendar() })
         weekPanel.addView(nav, lpMatchWrap(bottom = dp(14)))
         styleToggles()
 
@@ -373,6 +481,20 @@ class BoardController(private val ctx: Context) {
         monthContainer = buildMonthContainer()
         monthContainer.visibility = View.GONE
         weekPanel.addView(monthContainer, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        dayBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        dayContainer = ScrollView(ctx).apply {
+            isVerticalScrollBarEnabled = false
+            visibility = View.GONE
+            addView(dayBox, FrameLayout.LayoutParams(MATCH, WRAP))
+        }
+        weekPanel.addView(dayContainer, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        scheduleBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        scheduleContainer = ScrollView(ctx).apply {
+            isVerticalScrollBarEnabled = false
+            visibility = View.GONE
+            addView(scheduleBox, FrameLayout.LayoutParams(MATCH, WRAP))
+        }
+        weekPanel.addView(scheduleContainer, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
         // First-run setup panel ------------------------------------------
         setupPanel = LinearLayout(ctx).apply {
@@ -408,7 +530,48 @@ class BoardController(private val ctx: Context) {
             gravity = Gravity.CENTER
         }, lpMatchWrap(top = dp(6)))
         area.addView(setupPanel, FrameLayout.LayoutParams(MATCH, MATCH))
-        return area
+        setTab(0)
+        return outer
+    }
+
+    private fun setTab(i: Int) {
+        currentTab = i
+        tabPanels.forEachIndexed { idx, p ->
+            p.visibility = if (idx == i) View.VISIBLE else View.GONE
+        }
+        tabButtons.forEachIndexed { idx, b ->
+            b.background = rounded(if (idx == i) ACCENT else PILL, 18)
+            b.setTextColor(if (idx == i) Color.WHITE else INK)
+        }
+        when (i) {
+            0 -> { renderCalendar(); updateEmptyState() }
+            1 -> choresTab.render()
+            2 -> listsTab.render()
+        }
+    }
+
+    private fun placeholderPanel(message: String): FrameLayout =
+        FrameLayout(ctx).apply {
+            visibility = View.GONE
+            addView(TextView(ctx).apply {
+                text = message
+                textSize = 18f
+                setTextColor(MUTED)
+                gravity = Gravity.CENTER
+            }, FrameLayout.LayoutParams(MATCH, MATCH))
+        }
+
+    /** Calendar tab shows either the board or the first-run QR panel. */
+    private fun updateEmptyState() {
+        val empty = store.feeds().isEmpty()
+        val cal = currentTab == 0
+        weekPanel.visibility = if (cal && !empty) View.VISIBLE else View.GONE
+        setupPanel.visibility = if (cal && empty) View.VISIBLE else View.GONE
+        if (cal && empty) {
+            val url = setupUrl()
+            setupUrlText.text = url
+            setupQr.setImageBitmap(qrBitmap(url, dp(252)))
+        }
     }
 
     private fun buildMonthContainer(): LinearLayout {
@@ -466,21 +629,30 @@ class BoardController(private val ctx: Context) {
         return container
     }
 
-    private fun setMode(month: Boolean) {
-        isMonthMode = month
-        weekContainer.visibility = if (month) View.GONE else View.VISIBLE
-        monthContainer.visibility = if (month) View.VISIBLE else View.GONE
+    private fun setView(mode: Int) {
+        viewMode = mode
+        dayContainer.visibility = if (mode == VIEW_DAY) View.VISIBLE else View.GONE
+        weekContainer.visibility = if (mode == VIEW_WEEK) View.VISIBLE else View.GONE
+        monthContainer.visibility = if (mode == VIEW_MONTH) View.VISIBLE else View.GONE
+        scheduleContainer.visibility = if (mode == VIEW_SCHEDULE) View.VISIBLE else View.GONE
         styleToggles()
         renderCalendar()
     }
 
-    private fun styleToggles() {
-        fun style(btn: TextView, active: Boolean) {
-            btn.background = rounded(if (active) ACCENT else PILL, 20)
-            btn.setTextColor(if (active) Color.WHITE else INK)
+    private fun moveOffset(delta: Int) {
+        when (viewMode) {
+            VIEW_DAY -> dayOffset += delta
+            VIEW_WEEK -> weekOffset += delta
+            VIEW_MONTH -> monthOffset += delta
+            VIEW_SCHEDULE -> scheduleOffset += delta
         }
-        style(weekToggle, !isMonthMode)
-        style(monthToggle, isMonthMode)
+    }
+
+    private fun styleToggles() {
+        viewToggles.forEachIndexed { i, btn ->
+            btn.background = rounded(if (i == viewMode) ACCENT else PILL, 20)
+            btn.setTextColor(if (i == viewMode) Color.WHITE else INK)
+        }
     }
 
     private fun spacer(w: Int): View = View(ctx).apply {
@@ -522,6 +694,47 @@ class BoardController(private val ctx: Context) {
             setTextColor(MUTED)
             gravity = Gravity.CENTER
         }, lpMatchWrap(top = dp(6)))
+
+        val sizeRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        sizeRow.addView(TextView(ctx).apply {
+            text = "Display size"
+            textSize = 14f
+            setTextColor(MUTED)
+        })
+        val sizeLabel = TextView(ctx).apply {
+            text = "${(uiScale * 100).roundToInt()}%"
+            textSize = 15f
+            setTextColor(INK)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        val slider = android.widget.SeekBar(ctx).apply {
+            min = 70
+            max = 160
+            progress = (uiScale * 100).roundToInt()
+            runCatching {
+                thumb.setTint(ACCENT)
+                progressDrawable.setTint(ACCENT)
+            }
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar, p: Int, fromUser: Boolean) {
+                    sizeLabel.text = "$p%"
+                    if (fromUser) previewScale(p / 100f) // live zoom while dragging
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar) {
+                    commitScale(sb.progress / 100f) // crisp re-layout on release
+                }
+            })
+        }
+        sizeRow.addView(slider, LinearLayout.LayoutParams(dp(210), WRAP).apply {
+            leftMargin = dp(10); rightMargin = dp(8)
+        })
+        sizeRow.addView(sizeLabel, LinearLayout.LayoutParams(dp(52), WRAP))
+        card.addView(sizeRow, lpMatchWrap(top = dp(12)))
 
         val buttons = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         buttons.addView(navButton("Sync now") {
@@ -903,7 +1116,161 @@ class BoardController(private val ctx: Context) {
     // ------------------------------------------------------------- render
 
     private fun renderCalendar() {
-        if (isMonthMode) renderMonth() else renderWeek()
+        when (viewMode) {
+            VIEW_DAY -> renderDay()
+            VIEW_WEEK -> renderWeek()
+            VIEW_MONTH -> renderMonth()
+            VIEW_SCHEDULE -> renderSchedule()
+        }
+    }
+
+    private fun renderDay() {
+        val dayCal = Calendar.getInstance()
+        dayCal.set(Calendar.HOUR_OF_DAY, 0); dayCal.set(Calendar.MINUTE, 0)
+        dayCal.set(Calendar.SECOND, 0); dayCal.set(Calendar.MILLISECOND, 0)
+        dayCal.add(Calendar.DAY_OF_MONTH, dayOffset)
+        val dayStart = dayCal.timeInMillis
+        val dayEnd = (dayCal.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
+
+        val fmt = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault())
+        monthLabel.text = when (dayOffset) {
+            0 -> "Today · " + fmt.format(dayCal.time)
+            1 -> "Tomorrow · " + fmt.format(dayCal.time)
+            else -> fmt.format(dayCal.time)
+        }
+
+        dayBox.removeAllViews()
+        val evs = eventsInRange(dayStart, dayEnd)
+        if (evs.isEmpty()) {
+            dayBox.addView(TextView(ctx).apply {
+                text = "Nothing scheduled ✨"
+                textSize = 22f
+                setTextColor(MUTED)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(120), 0, 0)
+            }, lpMatchWrap())
+            return
+        }
+        for (ev in evs) {
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setOnClickListener { showDetails(ev) }
+            }
+            row.addView(TextView(ctx).apply {
+                text = if (ev.allDay) "All day"
+                       else if (ev.start < dayStart) "…" + timeFormat().format(ev.end)
+                       else timeFormat().format(ev.start)
+                textSize = 19f
+                setTextColor(MUTED)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            }, LinearLayout.LayoutParams(dp(130), WRAP))
+            val card = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = rounded(mix(ev.color, CARD, 0.88f), 14)
+                elevation = dp(1).toFloat()
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+            }
+            card.addView(View(ctx).apply { background = rounded(ev.color, 3) },
+                LinearLayout.LayoutParams(dp(5), dp(38)).apply { rightMargin = dp(14) })
+            val textCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+            textCol.addView(TextView(ctx).apply {
+                text = ev.title
+                textSize = 18f
+                setTextColor(INK)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            textCol.addView(TextView(ctx).apply {
+                text = buildString {
+                    if (!ev.allDay) {
+                        append(timeFormat().format(ev.start))
+                        if (ev.end > ev.start) append(" – ").append(timeFormat().format(ev.end))
+                    } else append("All day")
+                    ev.location?.let { append("   📍 ").append(it) }
+                }
+                textSize = 13f
+                setTextColor(MUTED)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            card.addView(textCol, LinearLayout.LayoutParams(0, WRAP, 1f))
+            row.addView(card, LinearLayout.LayoutParams(0, WRAP, 1f))
+            dayBox.addView(row, lpMatchWrap(bottom = dp(10)))
+        }
+    }
+
+    private fun renderSchedule() {
+        val start = Calendar.getInstance()
+        start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0)
+        start.set(Calendar.SECOND, 0); start.set(Calendar.MILLISECOND, 0)
+        start.add(Calendar.DAY_OF_MONTH, scheduleOffset * 14)
+        val rangeFmt = SimpleDateFormat("MMM d", Locale.getDefault())
+        val endCal = (start.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 13) }
+        monthLabel.text = rangeFmt.format(start.time) + " – " + rangeFmt.format(endCal.time)
+
+        scheduleBox.removeAllViews()
+        var any = false
+        val dayHeaderFmt = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault())
+        for (i in 0 until 14) {
+            val dayCal = (start.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, i) }
+            val dayStart = dayCal.timeInMillis
+            val dayEnd = (dayCal.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
+            val evs = eventsInRange(dayStart, dayEnd)
+            if (evs.isEmpty()) continue
+            any = true
+            val isToday = scheduleOffset == 0 && i == 0
+            val prefix = if (scheduleOffset == 0) when (i) {
+                0 -> "Today · "; 1 -> "Tomorrow · "; else -> ""
+            } else ""
+            scheduleBox.addView(TextView(ctx).apply {
+                text = prefix + dayHeaderFmt.format(dayCal.time)
+                textSize = 15f
+                setTextColor(if (isToday) ACCENT else MUTED)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setPadding(dp(4), dp(12), 0, dp(6))
+            }, lpMatchWrap())
+            for (ev in evs) {
+                val row = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = rounded(CARD, 12)
+                    elevation = dp(1).toFloat()
+                    setPadding(dp(14), dp(11), dp(14), dp(11))
+                    setOnClickListener { showDetails(ev) }
+                }
+                row.addView(View(ctx).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(ev.color)
+                    }
+                }, LinearLayout.LayoutParams(dp(12), dp(12)).apply { rightMargin = dp(12) })
+                row.addView(TextView(ctx).apply {
+                    text = if (ev.allDay) "All day" else timeFormat().format(ev.start)
+                    textSize = 14f
+                    setTextColor(MUTED)
+                }, LinearLayout.LayoutParams(dp(96), WRAP))
+                row.addView(TextView(ctx).apply {
+                    text = ev.title
+                    textSize = 16f
+                    setTextColor(INK)
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                scheduleBox.addView(row, lpMatchWrap(bottom = dp(6)))
+            }
+        }
+        if (!any) {
+            scheduleBox.addView(TextView(ctx).apply {
+                text = "Nothing in these two weeks ✨"
+                textSize = 22f
+                setTextColor(MUTED)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(120), 0, 0)
+            }, lpMatchWrap())
+        }
     }
 
     private fun renderMonth() {
@@ -963,15 +1330,7 @@ class BoardController(private val ctx: Context) {
         renderCalendar()
         renderLegend()
         statusText.text = statusLine
-
-        val empty = store.feeds().isEmpty()
-        weekPanel.visibility = if (empty) View.GONE else View.VISIBLE
-        setupPanel.visibility = if (empty) View.VISIBLE else View.GONE
-        if (empty) {
-            val url = setupUrl()
-            setupUrlText.text = url
-            setupQr.setImageBitmap(qrBitmap(url, dp(252)))
-        }
+        updateEmptyState()
     }
 
     private fun updateClock() {
@@ -985,6 +1344,8 @@ class BoardController(private val ctx: Context) {
             if (!firstRun) {
                 weekOffset = 0
                 monthOffset = 0
+                dayOffset = 0
+                scheduleOffset = 0
                 renderToday()
                 renderCalendar()
             }
@@ -1054,6 +1415,7 @@ class BoardController(private val ctx: Context) {
                 setTextColor(MUTED)
                 setPadding(0, dp(10), 0, 0)
             })
+            appendSidebarChores()
             return
         }
         for (ev in todays) {
@@ -1084,6 +1446,63 @@ class BoardController(private val ctx: Context) {
             })
             row.addView(textCol, LinearLayout.LayoutParams(0, WRAP, 1f))
             todayList.addView(row, lpMatchWrap(bottom = dp(6)))
+        }
+        appendSidebarChores()
+    }
+
+    /** Compact "chores due today" block under the Today agenda. */
+    private fun appendSidebarChores() {
+        val status = try { org.json.JSONObject(Chores.statusJson(ctx)) } catch (e: Exception) { return }
+        val chores = status.getJSONArray("chores")
+        if (chores.length() == 0) return
+        val doneArr = status.getJSONArray("doneToday")
+        val done = (0 until doneArr.length()).map { doneArr.optString(it) }.toSet()
+        val members = status.getJSONArray("members")
+        val dow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+
+        val due = (0 until chores.length()).map { chores.getJSONObject(it) }
+            .filter { Chores.isDue(it, dow) }
+            .sortedBy { done.contains(it.optString("id")) }
+        if (due.isEmpty()) return
+
+        todayList.addView(TextView(ctx).apply {
+            text = "CHORES"
+            textSize = 13f
+            setTextColor(ACCENT)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            letterSpacing = 0.12f
+            setPadding(0, dp(14), 0, dp(4))
+        })
+        for (c in due.take(6)) {
+            val isDone = done.contains(c.optString("id"))
+            val member = (0 until members.length()).map { members.getJSONObject(it) }
+                .find { it.optString("id") == c.optString("memberId") }
+            val color = Members.parse(member?.optString("color") ?: "#A3A8B0")
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(6), 0, dp(6))
+                setOnClickListener {
+                    runCatching {
+                        Chores.mutate(ctx, org.json.JSONObject()
+                            .put("action", "toggle").put("choreId", c.optString("id")))
+                    }
+                }
+            }
+            row.addView(View(ctx).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    if (isDone) setColor(color) else { setColor(Color.TRANSPARENT); setStroke(dp(2), color) }
+                }
+            }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { rightMargin = dp(10) })
+            row.addView(TextView(ctx).apply {
+                text = "${c.optString("icon")} ${c.optString("title")}"
+                textSize = 14f
+                setTextColor(if (isDone) FAINT else INK)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            todayList.addView(row, lpMatchWrap())
         }
     }
 
@@ -1217,6 +1636,10 @@ class BoardController(private val ctx: Context) {
         private const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         private const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
         private const val SYNC_INTERVAL_MS = 15L * 60 * 1000
+        private const val VIEW_DAY = 0
+        private const val VIEW_WEEK = 1
+        private const val VIEW_MONTH = 2
+        private const val VIEW_SCHEDULE = 3
 
         // Warm-paper light theme
         private val BG = 0xFFF4F1EA.toInt()          // warm paper background

@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Family Calendar — Setup</title>
+<title>Family Calendar</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#f0584c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23F0584C'/%3E%3Crect x='16' y='28' width='68' height='56' rx='10' fill='white'/%3E%3Crect x='24' y='42' width='32' height='9' rx='4.5' fill='%232BB3A3'/%3E%3Crect x='24' y='56' width='44' height='9' rx='4.5' fill='%23F2A93B'/%3E%3Crect x='24' y='70' width='24' height='9' rx='4.5' fill='%234FA3E3'/%3E%3C/svg%3E">
 <style>
   :root { color-scheme: light; }
@@ -63,9 +67,64 @@
 </head>
 <body>
   <h1>Family Calendar</h1>
-  <div class="sub">Calendars shown on the Portal</div>
+  <div class="sub">Your family hub, served straight from the Portal</div>
 
-  <div class="card">
+  <div id="tabbar" style="display:flex;gap:8px;margin-bottom:16px;">
+    <button data-tabbtn="calendar" onclick="showTab('calendar')" style="flex:1;">Calendar</button>
+    <button data-tabbtn="chores" class="ghost" onclick="showTab('chores')" style="flex:1;">Chores</button>
+    <button data-tabbtn="lists" class="ghost" onclick="showTab('lists')" style="flex:1;">Lists</button>
+    <button data-tabbtn="family" class="ghost" onclick="showTab('family')" style="flex:1;">Family</button>
+    <button data-tabbtn="settings" class="ghost" onclick="showTab('settings')" style="flex:1;">Settings</button>
+  </div>
+
+  <div class="card" data-tab="chores">
+    <strong>Stars this week</strong>
+    <div id="starBox" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card" data-tab="chores">
+    <strong>Chores</strong>
+    <div id="choreBox" style="margin-top:8px;"></div>
+    <div style="border-top:1px solid #efece4;margin-top:14px;padding-top:12px;">
+      <strong style="font-size:14px;">Add a chore</strong>
+      <div class="row2" style="margin-top:8px;">
+        <select id="chIcon" style="margin:0;flex:none;width:84px;">
+          <option>⭐</option><option>🛏️</option><option>🦷</option><option>🧹</option>
+          <option>🐕</option><option>📚</option><option>🍽️</option><option>🧺</option>
+          <option>🚿</option><option>⚽</option><option>🎒</option><option>🗑️</option>
+        </select>
+        <input type="text" id="chTitle" placeholder="e.g. Make your bed" autocomplete="off" style="margin:0;">
+      </div>
+      <div class="row2">
+        <select id="chMember" style="margin:0;"></select>
+      </div>
+      <div id="chDays" style="display:flex;gap:6px;margin:6px 0 12px;"></div>
+      <button style="width:100%;" onclick="addChore()">Add chore</button>
+    </div>
+    <div id="choreMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="lists">
+    <div id="pageLists"></div>
+    <div class="row2" style="margin-top:8px;">
+      <input type="text" id="newListName" placeholder="New list name" autocomplete="off" style="margin:0;">
+      <button onclick="addListP()" style="flex:none;">Add list</button>
+    </div>
+    <div id="listsMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="family">
+    <strong>Family members</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 10px;">Members power chores, stars and color coding across the board. Started from your calendar names — edit freely.</div>
+    <div id="membersBox"></div>
+    <div class="btnrow" style="margin-top:10px;">
+      <button class="ghost" onclick="addMemberRow()">+ Add member</button>
+      <button onclick="saveMembers()">Save members</button>
+    </div>
+    <div id="memMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="calendar">
     <strong>Add an event</strong>
     <div id="eventOff" style="color:#737983;font-size:14px;margin-top:8px;">
       Connect iCloud (below) to add events from this page — they sync back to the family calendar on everyone's devices.
@@ -105,11 +164,11 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-tab="calendar">
     <div id="list"></div>
   </div>
 
-  <div class="card">
+  <div class="card" data-tab="calendar">
     <strong>Add a calendar</strong>
     <label for="name">Person / calendar name</label>
     <input type="text" id="name" placeholder="e.g. Moshe" autocomplete="off">
@@ -124,7 +183,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-tab="settings">
     <strong>Idle screen</strong>
     <label class="switchrow" style="display:flex;align-items:center;gap:10px;margin-top:10px;font-size:15px;color:#333a45;">
       <input type="checkbox" id="ssToggle" onchange="toggleSaver()" style="width:22px;height:22px;flex:none;">
@@ -133,7 +192,17 @@
     <div id="ssNote" style="color:#8b949e;font-size:13px;margin-top:8px;"></div>
   </div>
 
-  <div class="card">
+  <div class="card" data-tab="settings">
+    <strong>Display size <span id="scaleVal" style="color:#f0584c;"></span></strong>
+    <input type="range" id="scaleSlider" min="70" max="160" step="5"
+           style="width:100%;margin-top:12px;accent-color:#f0584c;">
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:#9aa0a8;">
+      <span>70%</span><span>100%</span><span>160%</span>
+    </div>
+    <div style="font-size:13px;color:#737983;margin-top:8px;">Watch the Portal while you drag — it zooms live, then sharpens when you let go. 100% suits the Portal+; the 10″ Portal usually looks best at 110–125%.</div>
+  </div>
+
+  <div class="card" data-tab="settings">
     <strong>Two-way sync</strong>
     <p style="font-size:13px;color:#737983;margin:6px 0 10px;">Connect an account so events can be added from this page. Events are created in the real calendar, so they sync to everyone's devices.</p>
 
@@ -182,12 +251,12 @@
     <div id="gMsg" class="msgline"></div>
   </div>
 
-  <div class="btnrow">
+  <div class="btnrow" data-tab="settings">
     <button class="ghost" onclick="syncNow()">Sync the Portal now</button>
   </div>
   <div id="msg" class="msgline"></div>
 
-  <div class="card">
+  <div class="card" data-tab="calendar">
     <details>
       <summary>Google Calendar — get the secret address</summary>
       <p style="font-size:14px;color:#4d535e;margin:8px 0 6px;"><strong>Do it all on a computer</strong> — this page works there too, so the long link never has to touch your phone:</p>
@@ -454,10 +523,236 @@ async function addEvent(){
   } catch(e){ show('evMsg', e.message, false); }
 }
 
+const scaleSlider = document.getElementById('scaleSlider');
+const scaleVal = document.getElementById('scaleVal');
+let scalePreviewBusy = false, scalePreviewQueued = null;
+
+function showScaleVal(){ scaleVal.textContent = scaleSlider.value + '%'; }
+
+async function loadScale(){
+  try {
+    scaleSlider.value = Math.round((await (await fetch('/api/scale')).json()).scale * 100);
+    showScaleVal();
+  } catch(e){}
+}
+
+// While dragging: live GPU zoom on the Portal, throttled to one in-flight request.
+async function pumpScalePreview(v){
+  if (scalePreviewBusy) { scalePreviewQueued = v; return; }
+  scalePreviewBusy = true;
+  try { await fetch('/api/scale/preview', {method:'POST', body: JSON.stringify({scale: v/100})}); } catch(e){}
+  scalePreviewBusy = false;
+  if (scalePreviewQueued !== null) { const q = scalePreviewQueued; scalePreviewQueued = null; pumpScalePreview(q); }
+}
+
+scaleSlider.addEventListener('input', () => { showScaleVal(); pumpScalePreview(scaleSlider.value); });
+
+// On release: commit — the board re-lays itself out crisply at the new size.
+scaleSlider.addEventListener('change', async () => {
+  try {
+    await fetch('/api/scale', {method:'POST', body: JSON.stringify({scale: scaleSlider.value/100})});
+    msg('Display size set to ' + scaleSlider.value + '%', true);
+  } catch(e){ msg(e.message, false); }
+});
+
+// ----- tabs -----
+function showTab(name){
+  document.querySelectorAll('[data-tab]').forEach(el =>
+    el.style.display = el.dataset.tab === name ? '' : 'none');
+  document.querySelectorAll('[data-tabbtn]').forEach(b =>
+    b.className = b.dataset.tabbtn === name ? '' : 'ghost');
+  if (name === 'lists') loadListsP();
+  if (name === 'family') loadMembers();
+  if (name === 'chores') loadChores();
+}
+
+// ----- shared lists -----
+let pageLists = [];
+
+function renderListsP(){
+  const box = document.getElementById('pageLists');
+  if (!pageLists.length){
+    box.innerHTML = '<div class="empty">No lists yet — groceries, to-dos, packing…</div>';
+    return;
+  }
+  box.innerHTML = pageLists.map(l => {
+    const items = l.items.slice().sort((a,b)=>(a.done?1:0)-(b.done?1:0));
+    return `<div style="margin-bottom:18px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <strong style="flex:1;font-size:17px;">${esc(l.name)}</strong>
+        <button class="ghost" style="padding:6px 10px;font-size:13px;" onclick="listAct({action:'clearDone',listId:'${esc(l.id)}'})">Clear done</button>
+        <button class="del" onclick="listAct({action:'deleteList',listId:'${esc(l.id)}'})">✕</button>
+      </div>
+      ${items.map(it => `
+        <div class="cal-row" style="cursor:pointer;" onclick="listAct({action:'toggleItem',listId:'${esc(l.id)}',itemId:'${esc(it.id)}'})">
+          <div class="dot" style="background:${it.done ? '#f0584c' : 'transparent'};border:2px solid ${it.done ? '#f0584c' : '#c9c4b8'};"></div>
+          <div class="grow" style="${it.done ? 'color:#a3a8b0;text-decoration:line-through;' : ''}">${esc(it.text)}</div>
+          <button class="del" onclick="event.stopPropagation();listAct({action:'deleteItem',listId:'${esc(l.id)}',itemId:'${esc(it.id)}'})">✕</button>
+        </div>`).join('')}
+      <div class="row2" style="margin:8px 0 0;">
+        <input type="text" id="add-${esc(l.id)}" placeholder="Add an item" autocomplete="off" style="margin:0;"
+               onkeydown="if(event.key==='Enter')addItemP('${esc(l.id)}')">
+        <button class="ghost" style="flex:none;" onclick="addItemP('${esc(l.id)}')">Add</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadListsP(){
+  try { pageLists = await (await fetch('/api/lists')).json(); renderListsP(); }
+  catch(e){ show('listsMsg', e.message, false); }
+}
+
+async function listAct(action){
+  try {
+    const r = await fetch('/api/lists', {method:'POST', body: JSON.stringify(action)});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    pageLists = body; renderListsP();
+  } catch(e){ show('listsMsg', e.message, false); }
+}
+
+function addListP(){
+  const inp = document.getElementById('newListName');
+  if (!inp.value.trim()) return show('listsMsg', 'Give the list a name', false);
+  listAct({action:'addList', name: inp.value.trim()});
+  inp.value = '';
+}
+
+function addItemP(listId){
+  const inp = document.getElementById('add-' + listId);
+  if (!inp.value.trim()) return;
+  listAct({action:'addItem', listId, text: inp.value.trim()});
+  inp.value = '';
+}
+
+// ----- chores & stars -----
+const DOW = [{n:'S',v:1},{n:'M',v:2},{n:'T',v:3},{n:'W',v:4},{n:'T',v:5},{n:'F',v:6},{n:'S',v:7}];
+let choreDays = [2,3,4,5,6]; // default school days
+let choreStatus = null;
+
+function renderDayChips(){
+  document.getElementById('chDays').innerHTML = DOW.map(d =>
+    `<button class="${choreDays.includes(d.v) ? '' : 'ghost'}" style="flex:1;padding:8px 0;"
+             onclick="toggleDay(${d.v})">${d.n}</button>`).join('');
+}
+function toggleDay(v){
+  choreDays = choreDays.includes(v) ? choreDays.filter(x => x !== v) : [...choreDays, v];
+  renderDayChips();
+}
+
+function memberName(id){
+  const m = (choreStatus?.members || []).find(m => m.id === id);
+  return m ? m.name : 'Anyone';
+}
+
+function renderChores(){
+  const st = choreStatus;
+  // Star tally with editable weekly goals
+  document.getElementById('starBox').innerHTML = (st.members || []).map(m => {
+    const stars = st.stars[m.id] || 0;
+    const goal = st.goals[m.id] || 10;
+    const pct = Math.min(100, Math.round(stars / goal * 100));
+    return `<div style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="dot" style="background:${esc(m.color)};"></div>
+        <strong style="flex:1;">${esc(m.name)}</strong>
+        <span>⭐ ${stars} / </span>
+        <input type="number" value="${goal}" min="1" max="99" style="width:64px;margin:0;padding:6px;"
+               onchange="choreAct({action:'setGoal',memberId:'${esc(m.id)}',goal:parseInt(this.value)||10})">
+      </div>
+      <div style="background:#efece4;border-radius:6px;height:10px;margin-top:6px;overflow:hidden;">
+        <div style="background:${esc(m.color)};width:${pct}%;height:100%;"></div>
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty">Add family members first (Family tab)</div>';
+
+  // Chore list
+  const dayNames = ['','Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  document.getElementById('choreBox').innerHTML = (st.chores || []).map(c => {
+    const days = (c.days || []).length === 7 ? 'Every day'
+      : (c.days || []).map(d => dayNames[d]).join(' ');
+    return `<div class="cal-row">
+      <span style="font-size:20px;">${esc(c.icon || '⭐')}</span>
+      <div class="grow">
+        <div class="cal-name">${esc(c.title)}</div>
+        <div class="cal-url">${esc(memberName(c.memberId))} · ${esc(days)}</div>
+      </div>
+      <button class="del" onclick="choreAct({action:'deleteChore',choreId:'${esc(c.id)}'})">✕</button>
+    </div>`;
+  }).join('') || '<div class="empty">No chores yet</div>';
+
+  // Member select for the add form
+  document.getElementById('chMember').innerHTML =
+    (st.members || []).map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+}
+
+async function loadChores(){
+  try { choreStatus = await (await fetch('/api/chores')).json(); renderChores(); renderDayChips(); }
+  catch(e){ show('choreMsg', e.message, false); }
+}
+
+async function choreAct(action){
+  try {
+    const r = await fetch('/api/chores', {method:'POST', body: JSON.stringify(action)});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    choreStatus = body; renderChores();
+  } catch(e){ show('choreMsg', e.message, false); }
+}
+
+function addChore(){
+  const title = document.getElementById('chTitle').value.trim();
+  if (!title) return show('choreMsg', 'Give the chore a name', false);
+  if (!choreDays.length) return show('choreMsg', 'Pick at least one day', false);
+  choreAct({action:'addChore', title,
+    icon: document.getElementById('chIcon').value,
+    memberId: document.getElementById('chMember').value,
+    days: choreDays});
+  document.getElementById('chTitle').value = '';
+  show('choreMsg', '✓ Added', true);
+}
+
+// ----- family members -----
+let members = [];
+
+function renderMembers(){
+  document.getElementById('membersBox').innerHTML = members.map((m,i) => `
+    <div class="cal-row">
+      <input type="color" value="${esc(m.color)}" onchange="members[${i}].color=this.value">
+      <input type="text" value="${esc(m.name)}" autocomplete="off" style="margin:0;flex:1;"
+             oninput="members[${i}].name=this.value">
+      <button class="del" onclick="members.splice(${i},1);renderMembers()">✕</button>
+    </div>`).join('') || '<div class="empty">No members yet</div>';
+}
+
+async function loadMembers(){
+  try { members = await (await fetch('/api/members')).json(); renderMembers(); }
+  catch(e){ show('memMsg', e.message, false); }
+}
+
+function addMemberRow(){
+  const palette = ['#f0584c','#2bb3a3','#f2a93b','#4fa3e3','#8e7cc3','#e87ea1'];
+  members.push({name:'', color: palette[members.length % palette.length]});
+  renderMembers();
+}
+
+async function saveMembers(){
+  try {
+    const r = await fetch('/api/members', {method:'POST', body: JSON.stringify(members)});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    members = body; renderMembers();
+    show('memMsg', '✓ Saved', true);
+  } catch(e){ show('memMsg', e.message, false); }
+}
+
 document.querySelectorAll('.selfurl').forEach(e => e.textContent = location.host);
+showTab('calendar');
 load();
 loadSaver();
 loadWriters();
+loadScale();
 </script>
 </body>
 </html>

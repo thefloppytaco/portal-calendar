@@ -40,6 +40,35 @@ class ConfigServer(
             onConfigChanged()
             json("{\"ok\":true}")
         }
+        s.uri == "/manifest.json" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "application/json", """
+                {"name":"Family Calendar","short_name":"Family",
+                 "start_url":"/","display":"standalone",
+                 "background_color":"#f4f1ea","theme_color":"#f0584c",
+                 "icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml"}]}
+            """.trimIndent())
+        s.uri == "/icon.svg" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "image/svg+xml",
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">" +
+                "<rect width=\"100\" height=\"100\" rx=\"24\" fill=\"#F0584C\"/>" +
+                "<rect x=\"16\" y=\"28\" width=\"68\" height=\"56\" rx=\"10\" fill=\"white\"/>" +
+                "<rect x=\"24\" y=\"42\" width=\"32\" height=\"9\" rx=\"4.5\" fill=\"#2BB3A3\"/>" +
+                "<rect x=\"24\" y=\"56\" width=\"44\" height=\"9\" rx=\"4.5\" fill=\"#F2A93B\"/>" +
+                "<rect x=\"24\" y=\"70\" width=\"24\" height=\"9\" rx=\"4.5\" fill=\"#4FA3E3\"/></svg>")
+        s.uri == "/api/members" && s.method == Method.GET ->
+            json(Members.json(ctx))
+        s.uri == "/api/members" && s.method == Method.POST -> {
+            Members.save(ctx, readBody(s))
+            json(Members.json(ctx))
+        }
+        s.uri == "/api/lists" && s.method == Method.GET ->
+            json(FamilyLists.json(ctx))
+        s.uri == "/api/lists" && s.method == Method.POST ->
+            json(FamilyLists.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/chores" && s.method == Method.GET ->
+            json(Chores.statusJson(ctx))
+        s.uri == "/api/chores" && s.method == Method.POST ->
+            json(Chores.mutate(ctx, org.json.JSONObject(readBody(s))))
         s.uri == "/api/writers" && s.method == Method.GET ->
             json(Writers.statusJson(ctx))
         s.uri == "/api/target" && s.method == Method.POST -> {
@@ -105,6 +134,20 @@ class ConfigServer(
             val count = App.instance.sync.validateFeed(url)
             json("{\"ok\":true,\"events\":$count}")
         }
+        s.uri == "/api/scale" && s.method == Method.GET ->
+            json("{\"scale\":${store.uiScale()}}")
+        s.uri == "/api/scale" && s.method == Method.POST -> {
+            store.setUiScale(org.json.JSONObject(readBody(s)).getDouble("scale").toFloat())
+            onConfigChanged() // board notices the change and rebuilds itself
+            json("{\"scale\":${store.uiScale()}}")
+        }
+        // Live zoom while the page's slider is being dragged — GPU transform
+        // only; the drag-end POST to /api/scale does the real re-layout.
+        s.uri == "/api/scale/preview" && s.method == Method.POST -> {
+            val v = org.json.JSONObject(readBody(s)).getDouble("scale").toFloat()
+            App.instance.onMain { App.instance.activeBoard?.previewScale(v) }
+            json("{\"ok\":true}")
+        }
         s.uri == "/api/screensaver" && s.method == Method.GET ->
             json(Screensaver.statusJson(ctx))
         s.uri == "/api/screensaver" && s.method == Method.POST -> {
@@ -115,10 +158,26 @@ class ConfigServer(
         else -> newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found")
     }
 
+    /**
+     * Reads the raw body as UTF-8. NanoHTTPD's parseBody() decodes bodies
+     * without an explicit charset as Latin-1, which mangles emoji and any
+     * non-ASCII text (chore icons, event titles…).
+     */
     private fun readBody(s: IHTTPSession): String {
-        val files = HashMap<String, String>()
-        s.parseBody(files)
-        return files["postData"] ?: ""
+        val len = s.headers["content-length"]?.toIntOrNull() ?: 0
+        if (len <= 0) {
+            val files = HashMap<String, String>()
+            s.parseBody(files)
+            return files["postData"] ?: ""
+        }
+        val buf = ByteArray(len)
+        var read = 0
+        while (read < len) {
+            val n = s.inputStream.read(buf, read, len - read)
+            if (n <= 0) break
+            read += n
+        }
+        return String(buf, 0, read, Charsets.UTF_8)
     }
 
     private fun json(body: String) =

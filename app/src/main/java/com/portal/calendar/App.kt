@@ -32,6 +32,13 @@ class App : Application() {
     private val main = Handler(Looper.getMainLooper())
     private val configListeners = CopyOnWriteArraySet<() -> Unit>()
 
+    /** The board currently on screen, if any — used for live scale preview. */
+    var activeBoard: BoardController? = null
+
+    fun onMain(block: () -> Unit) {
+        main.post(block)
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -59,6 +66,14 @@ class App : Application() {
     fun removeConfigListener(l: () -> Unit) = configListeners.remove(l)
     fun notifyConfigChanged() {
         main.post { configListeners.forEach { it() } }
+    }
+
+    /** Local family data changed (lists/chores/meals/members) — cheaper than a feed re-sync. */
+    private val dataListeners = CopyOnWriteArraySet<() -> Unit>()
+    fun addDataListener(l: () -> Unit) = dataListeners.add(l)
+    fun removeDataListener(l: () -> Unit) = dataListeners.remove(l)
+    fun notifyDataChanged() {
+        main.post { dataListeners.forEach { it() } }
     }
 
     private fun onDreamEvent(action: String) {

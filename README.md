@@ -47,12 +47,20 @@ adb install -r app-debug.apk
 adb shell am start -n com.portal.calendar/.MainActivity
 ```
 
+Wireless adb works too: with the Portal plugged in over USB, run `adb tcpip 5555`,
+unplug, then `adb connect <portal-ip>:5555`. Note the TCP mode doesn't survive a
+Portal reboot (no root means it can't be persisted) — replug USB and re-run
+`adb tcpip 5555` after a restart.
+
 That's it. The board shows a QR code; everything else happens from your phone.
 
 **No `adb`?** You can install straight from your browser with
 [OpenPortal](https://andronedev.github.io/openportal/apps/com.portal.calendar) — plug
 the Portal into any Chromium-based browser via USB, click install, and skip the
 `adb` commands above. No driver or toolchain needed.
+
+> **10″ Portal / text too small?** There's a **Display size** control on the setup
+> page (and under ⚙ on the board) that zooms the whole UI from 80% to 140%.
 
 ## Setup
 
