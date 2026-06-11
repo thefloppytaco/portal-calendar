@@ -11,9 +11,26 @@ secondhand Portal.
 
 ## What it does
 
-- **Always-on board** — live clock, "Today" agenda sidebar, paging week view and a
-  full month view (tap a day for its events, tap an event for details). The board
-  always returns to the current week when it takes over the screen.
+- **Always-on board** — live clock, "Today" agenda sidebar, and four calendar views:
+  Day, Week, Month, and Plan (a rolling two-week agenda). Tap a day for its events,
+  tap an event for details. The board always returns to the current week when it
+  takes over the screen.
+- **Chores & star rewards** — chores belong to a family member and repeat on chosen
+  weekdays. Kids tap big cards on the Chores tab to complete them and earn stars
+  toward a weekly goal (tally + progress bar per kid). Today's chores also sit under
+  the sidebar agenda.
+- **Shared lists** — groceries, to-dos, packing lists; check things off on the board
+  or from any phone on the Wi-Fi.
+- **Meal planner + recipe box** — plan breakfast/lunch/dinner/snack for the week on
+  the page; the board shows the week's menu, and meals linked to a recipe open it
+  on tap.
+- **Weather** — free Open-Meteo forecasts (no API key): current conditions in the
+  sidebar, daily highs in the week header, and an hour-accurate forecast on each
+  event's details. Set the location once on the page.
+- **Kid lock** — an optional 4-digit PIN gates adding events, Settings, and list
+  deletion on the touchscreen, while chores and list check-offs stay kid-friendly.
+- **Family members** — one color per person, used consistently across calendars,
+  chores, and stars.
 - **Syncs any calendar that has an iCal feed** — Google Calendar secret addresses,
   iCloud public calendar links (`webcal://`), or any other `.ics` URL. One color per
   person. Recurring events, edited instances, and cancellations all handled.
