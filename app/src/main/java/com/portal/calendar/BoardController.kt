@@ -135,13 +135,34 @@ class BoardController(private val baseCtx: Context) {
             // Scale changed (from the config page or ⚙) — rebuild the whole UI.
             (baseCtx as? android.app.Activity)?.recreate()
         } else {
+            // Commit at the unchanged value: no rebuild happens, so make sure
+            // any live-preview transform is cleared.
+            contentRow.scaleX = 1f
+            contentRow.scaleY = 1f
             statusLine = "Config updated — syncing…"
             renderAll()
             doSync()
         }
     }
 
+    /**
+     * Live zoom while a slider is being dragged: a cheap GPU transform of the
+     * board content (overlays stay unscaled). The real re-layout happens once,
+     * on [commitScale].
+     */
+    fun previewScale(target: Float) {
+        val f = target.coerceIn(0.7f, 1.6f) / uiScale
+        contentRow.scaleX = f
+        contentRow.scaleY = f
+    }
+
+    fun commitScale(target: Float) {
+        store.setUiScale(target)
+        (baseCtx as? android.app.Activity)?.recreate()
+    }
+
     fun start() {
+        App.instance.activeBoard = this
         App.instance.addConfigListener(configListener)
         exitButton.visibility = if (onExit != null) View.VISIBLE else View.GONE
         renderAll()
@@ -152,6 +173,7 @@ class BoardController(private val baseCtx: Context) {
     fun stop() {
         handler.removeCallbacksAndMessages(null)
         App.instance.removeConfigListener(configListener)
+        if (App.instance.activeBoard === this) App.instance.activeBoard = null
     }
 
     /** Returns true if an overlay was open and got closed (for Back handling). */
@@ -195,6 +217,8 @@ class BoardController(private val baseCtx: Context) {
 
     private fun dp(v: Int): Int = (v * ctx.resources.displayMetrics.density).roundToInt()
 
+    private lateinit var contentRow: LinearLayout
+
     private fun buildUi(): FrameLayout {
         val root = FrameLayout(ctx)
         root.setBackgroundColor(BG)
@@ -202,6 +226,7 @@ class BoardController(private val baseCtx: Context) {
         val row = LinearLayout(ctx)
         row.orientation = LinearLayout.HORIZONTAL
         root.addView(row, FrameLayout.LayoutParams(MATCH, MATCH))
+        contentRow = row
 
         row.addView(buildSidebar(), LinearLayout.LayoutParams(dp(300), MATCH))
         row.addView(buildMainArea(), LinearLayout.LayoutParams(0, MATCH, 1f))
@@ -549,16 +574,36 @@ class BoardController(private val baseCtx: Context) {
             textSize = 14f
             setTextColor(MUTED)
         })
-        sizeRow.addView(navButton("A−") { changeScale(-0.1f) })
-        sizeRow.addView(TextView(ctx).apply {
+        val sizeLabel = TextView(ctx).apply {
             text = "${(uiScale * 100).roundToInt()}%"
             textSize = 15f
             setTextColor(INK)
             gravity = Gravity.CENTER
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            layoutParams = LinearLayout.LayoutParams(dp(64), WRAP).apply { leftMargin = dp(8) }
+        }
+        val slider = android.widget.SeekBar(ctx).apply {
+            min = 70
+            max = 160
+            progress = (uiScale * 100).roundToInt()
+            runCatching {
+                thumb.setTint(ACCENT)
+                progressDrawable.setTint(ACCENT)
+            }
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: android.widget.SeekBar, p: Int, fromUser: Boolean) {
+                    sizeLabel.text = "$p%"
+                    if (fromUser) previewScale(p / 100f) // live zoom while dragging
+                }
+                override fun onStartTrackingTouch(sb: android.widget.SeekBar) {}
+                override fun onStopTrackingTouch(sb: android.widget.SeekBar) {
+                    commitScale(sb.progress / 100f) // crisp re-layout on release
+                }
+            })
+        }
+        sizeRow.addView(slider, LinearLayout.LayoutParams(dp(210), WRAP).apply {
+            leftMargin = dp(10); rightMargin = dp(8)
         })
-        sizeRow.addView(navButton("A+") { changeScale(+0.1f) })
+        sizeRow.addView(sizeLabel, LinearLayout.LayoutParams(dp(52), WRAP))
         card.addView(sizeRow, lpMatchWrap(top = dp(12)))
 
         val buttons = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
@@ -791,11 +836,6 @@ class BoardController(private val baseCtx: Context) {
                 }
             }
         }.start()
-    }
-
-    private fun changeScale(delta: Float) {
-        store.setUiScale(uiScale + delta)
-        (baseCtx as? android.app.Activity)?.recreate()
     }
 
     private fun hideKeyboard() {

@@ -112,6 +112,13 @@ class ConfigServer(
             onConfigChanged() // board notices the change and rebuilds itself
             json("{\"scale\":${store.uiScale()}}")
         }
+        // Live zoom while the page's slider is being dragged — GPU transform
+        // only; the drag-end POST to /api/scale does the real re-layout.
+        s.uri == "/api/scale/preview" && s.method == Method.POST -> {
+            val v = org.json.JSONObject(readBody(s)).getDouble("scale").toFloat()
+            App.instance.onMain { App.instance.activeBoard?.previewScale(v) }
+            json("{\"ok\":true}")
+        }
         s.uri == "/api/screensaver" && s.method == Method.GET ->
             json(Screensaver.statusJson(ctx))
         s.uri == "/api/screensaver" && s.method == Method.POST -> {

@@ -32,6 +32,13 @@ class App : Application() {
     private val main = Handler(Looper.getMainLooper())
     private val configListeners = CopyOnWriteArraySet<() -> Unit>()
 
+    /** The board currently on screen, if any — used for live scale preview. */
+    var activeBoard: BoardController? = null
+
+    fun onMain(block: () -> Unit) {
+        main.post(block)
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this

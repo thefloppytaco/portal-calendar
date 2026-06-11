@@ -134,9 +134,13 @@
   </div>
 
   <div class="card">
-    <strong>Display size</strong>
-    <div id="scaleRow" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;"></div>
-    <div style="font-size:13px;color:#737983;margin-top:8px;">100% suits the Portal+; the 10″ Portal usually looks best at 110–125%.</div>
+    <strong>Display size <span id="scaleVal" style="color:#f0584c;"></span></strong>
+    <input type="range" id="scaleSlider" min="70" max="160" step="5"
+           style="width:100%;margin-top:12px;accent-color:#f0584c;">
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:#9aa0a8;">
+      <span>70%</span><span>100%</span><span>160%</span>
+    </div>
+    <div style="font-size:13px;color:#737983;margin-top:8px;">Watch the Portal while you drag — it zooms live, then sharpens when you let go. 100% suits the Portal+; the 10″ Portal usually looks best at 110–125%.</div>
   </div>
 
   <div class="card">
@@ -460,26 +464,37 @@ async function addEvent(){
   } catch(e){ show('evMsg', e.message, false); }
 }
 
-const SCALES = [0.8, 0.9, 1.0, 1.1, 1.25, 1.4];
+const scaleSlider = document.getElementById('scaleSlider');
+const scaleVal = document.getElementById('scaleVal');
+let scalePreviewBusy = false, scalePreviewQueued = null;
 
-function renderScale(current){
-  document.getElementById('scaleRow').innerHTML = SCALES.map(s => {
-    const active = Math.abs(s - current) < 0.05;
-    return `<button class="${active ? '' : 'ghost'}" style="flex:1;min-width:60px;padding:10px 0;" onclick="setScale(${s})">${Math.round(s*100)}%</button>`;
-  }).join('');
-}
+function showScaleVal(){ scaleVal.textContent = scaleSlider.value + '%'; }
 
 async function loadScale(){
-  try { renderScale((await (await fetch('/api/scale')).json()).scale); } catch(e){}
+  try {
+    scaleSlider.value = Math.round((await (await fetch('/api/scale')).json()).scale * 100);
+    showScaleVal();
+  } catch(e){}
 }
 
-async function setScale(s){
-  try {
-    const r = await fetch('/api/scale', {method:'POST', body: JSON.stringify({scale: s})});
-    renderScale((await r.json()).scale);
-    msg('Display size updated — the board redraws itself', true);
-  } catch(e){ msg(e.message, false); }
+// While dragging: live GPU zoom on the Portal, throttled to one in-flight request.
+async function pumpScalePreview(v){
+  if (scalePreviewBusy) { scalePreviewQueued = v; return; }
+  scalePreviewBusy = true;
+  try { await fetch('/api/scale/preview', {method:'POST', body: JSON.stringify({scale: v/100})}); } catch(e){}
+  scalePreviewBusy = false;
+  if (scalePreviewQueued !== null) { const q = scalePreviewQueued; scalePreviewQueued = null; pumpScalePreview(q); }
 }
+
+scaleSlider.addEventListener('input', () => { showScaleVal(); pumpScalePreview(scaleSlider.value); });
+
+// On release: commit — the board re-lays itself out crisply at the new size.
+scaleSlider.addEventListener('change', async () => {
+  try {
+    await fetch('/api/scale', {method:'POST', body: JSON.stringify({scale: scaleSlider.value/100})});
+    msg('Display size set to ' + scaleSlider.value + '%', true);
+  } catch(e){ msg(e.message, false); }
+});
 
 document.querySelectorAll('.selfurl').forEach(e => e.textContent = location.host);
 load();
