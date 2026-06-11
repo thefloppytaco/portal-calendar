@@ -41,7 +41,8 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
             for (feed in feeds) {
                 val text = fetchWithCache(feed, problems) ?: continue
                 try {
-                    all.addAll(parseFeed(text, feed))
+                    if (feed.kind == "inbox") processInbox(text)
+                    else all.addAll(parseFeed(text, feed))
                 } catch (e: Exception) {
                     problems.add("${feed.name}: unreadable feed (${e.javaClass.simpleName})")
                 }
@@ -183,6 +184,23 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
             throw e
         } catch (e: Exception) {
             throw IllegalArgumentException("couldn't reach that link (${e.message ?: e.javaClass.simpleName})")
+        }
+    }
+
+    /** Inbox calendars: every event is a command, parsed loosely, never rendered. */
+    private fun processInbox(text: String) {
+        for (ical in Biweekly.parse(text).all()) {
+            for (e in ical.events) {
+                if (e.status?.value?.equals("CANCELLED", true) == true) continue
+                val title = e.summary?.value?.trim().orEmpty()
+                if (title.isEmpty()) continue
+                val uid = e.uid?.value ?: title
+                if (!MagicWords.markProcessed(ctx, uid)) continue
+                runCatching {
+                    MagicWords.execute(ctx, MagicWords.parseLoose(ctx, title),
+                        e.dateStart?.value?.time ?: System.currentTimeMillis())
+                }
+            }
         }
     }
 

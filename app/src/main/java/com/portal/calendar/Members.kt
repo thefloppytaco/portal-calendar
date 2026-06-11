@@ -20,7 +20,7 @@ object Members {
         var arr = Data.readArray(ctx, FILE)
         if (arr.length() == 0) {
             val seeded = JSONArray()
-            ConfigStore(ctx).feeds().forEach { f ->
+            ConfigStore(ctx).feeds().filter { it.kind != "inbox" }.forEach { f ->
                 seeded.put(JSONObject()
                     .put("id", UUID.randomUUID().toString())
                     .put("name", f.name)

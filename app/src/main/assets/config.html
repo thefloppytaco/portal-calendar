@@ -205,7 +205,12 @@
     <div class="row2">
       <label for="color">Color</label>
       <input type="color" id="color" value="#2d81ff">
+      <select id="calKind" style="margin:0;flex:1;">
+        <option value="calendar">Shows on the board</option>
+        <option value="inbox">Inbox — every event is a command (hidden)</option>
+      </select>
     </div>
+    <div style="font-size:13px;color:#737983;margin-bottom:10px;">Tip: make a shared calendar called "Portal Inbox", hide it from view on everyone's phones (its checkbox in the calendar app), and add it here as an Inbox — then anyone can send <em>"add oat milk to groceries"</em> or <em>"remind Chani to water the plants"</em> from anywhere without cluttering their own calendar.</div>
     <div class="btnrow">
       <button onclick="addCal()">Add calendar</button>
     </div>
@@ -357,7 +362,8 @@
         <li><code>groceries: oat milk</code> → the "Groceries" list</li>
         <li><code>chore: Chani water the plants</code> → a one-time chore on the event's date — a family member's name in the text assigns it to them</li>
       </ol>
-      <p style="font-size:13px;color:#737983;margin:6px 0 2px;">Each event is processed once, and stays in your real calendar as a record. The Portal sees it on its next feed sync (within ~15 min).</p>
+      <p style="font-size:13px;color:#737983;margin:6px 0 2px;">Typos are forgiven ("groceres:" still finds Groceries), lists are created automatically if they don't exist, and each event is processed once — it stays in your real calendar as a record. The Portal sees it on its next feed sync (within ~15 min).</p>
+      <p style="font-size:14px;color:#4d535e;margin:8px 0 2px;"><strong>Even better:</strong> add a dedicated <em>Inbox</em> calendar (see "Add a calendar"). In an Inbox, no prefixes are needed — plain phrases like <code>add oat milk to groceries</code>, <code>buy batteries</code>, or <code>remind Chani to water the plants</code> just work, and nothing from it ever shows on the board.</p>
     </details>
     <details>
       <summary>Good to know</summary>
@@ -382,7 +388,7 @@ function render(){
     <div class="cal-row">
       <div class="dot" style="background:${esc(f.color)}"></div>
       <div class="grow">
-        <div class="cal-name">${esc(f.name)}</div>
+        <div class="cal-name">${esc(f.name)}${f.kind === 'inbox' ? ' <span style="font-size:12px;color:#f0584c;">📥 inbox</span>' : ''}</div>
         <div class="cal-url">${esc(f.url)}</div>
       </div>
       <button class="del" onclick="removeCal(${i})" aria-label="Remove">✕</button>
@@ -430,7 +436,7 @@ async function addCal(){
     const r = await fetch('/api/validate', {method:'POST', body: JSON.stringify({url})});
     const body = await r.json();
     if (!r.ok) throw new Error(body.error || 'check failed');
-    feeds.push({name, color, url});
+    feeds.push({name, color, url, kind: document.getElementById('calKind').value});
     await save();
     document.getElementById('name').value = '';
     document.getElementById('url').value = '';

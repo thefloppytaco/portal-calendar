@@ -5,7 +5,12 @@ import android.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class FeedConfig(val name: String, val color: Int, val url: String)
+data class FeedConfig(
+    val name: String,
+    val color: Int,
+    val url: String,
+    /** "calendar" renders on the board; "inbox" = every event is a command. */
+    val kind: String = "calendar")
 
 /** Feed list persisted as a JSON array in SharedPreferences. */
 class ConfigStore(ctx: Context) {
@@ -23,7 +28,8 @@ class ConfigStore(ctx: Context) {
             } catch (e: IllegalArgumentException) {
                 Color.parseColor("#58A6FF")
             }
-            out.add(FeedConfig(o.optString("name", "Calendar"), color, o.optString("url", "")))
+            out.add(FeedConfig(o.optString("name", "Calendar"), color, o.optString("url", ""),
+                if (o.optString("kind") == "inbox") "inbox" else "calendar"))
         }
         return out
     }
@@ -42,7 +48,8 @@ class ConfigStore(ctx: Context) {
             if (!url.startsWith("http://") && !url.startsWith("https://"))
                 throw IllegalArgumentException("\"$name\" has an invalid URL")
             Color.parseColor(color) // throws if bad
-            clean.put(JSONObject().put("name", name).put("color", color).put("url", url))
+            clean.put(JSONObject().put("name", name).put("color", color).put("url", url)
+                .put("kind", if (o.optString("kind") == "inbox") "inbox" else "calendar"))
         }
         prefs.edit().putString(KEY, clean.toString()).apply()
     }

@@ -1940,7 +1940,7 @@ class BoardController(private val baseCtx: Context) {
 
     private fun renderLegend() {
         legendList.removeAllViews()
-        for (f in store.feeds()) {
+        for (f in store.feeds().filter { it.kind != "inbox" }) {
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
