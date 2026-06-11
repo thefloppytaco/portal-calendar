@@ -68,6 +68,7 @@ class BoardController(private val baseCtx: Context) {
     private lateinit var tabButtons: List<TextView>
     private lateinit var tabPanels: List<View>
     private lateinit var listsTab: ListsTab
+    private lateinit var choresTab: ChoresTab
 
     private lateinit var clockText: TextView
     private lateinit var dateText: TextView
@@ -168,7 +169,11 @@ class BoardController(private val baseCtx: Context) {
     }
 
     private val dataListener: () -> Unit = {
-        if (currentTab == 2) listsTab.render()
+        renderToday() // sidebar chores widget lives there
+        when (currentTab) {
+            1 -> choresTab.render()
+            2 -> listsTab.render()
+        }
     }
 
     fun start() {
@@ -373,11 +378,11 @@ class BoardController(private val baseCtx: Context) {
         // Other tabs ---------------------------------------------------------
         listsTab = ListsTab(ctx)
         area.addView(listsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
-        val choresPlaceholder = placeholderPanel("Chores are coming in the next update")
-        area.addView(choresPlaceholder, FrameLayout.LayoutParams(MATCH, MATCH))
+        choresTab = ChoresTab(ctx)
+        area.addView(choresTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
         val mealsPlaceholder = placeholderPanel("Meal planning is coming in the next update")
         area.addView(mealsPlaceholder, FrameLayout.LayoutParams(MATCH, MATCH))
-        tabPanels = listOf(weekPanel, choresPlaceholder, listsTab.view, mealsPlaceholder)
+        tabPanels = listOf(weekPanel, choresTab.view, listsTab.view, mealsPlaceholder)
 
         // Nav row -------------------------------------------------------
         val nav = LinearLayout(ctx).apply {
@@ -513,6 +518,7 @@ class BoardController(private val baseCtx: Context) {
         }
         when (i) {
             0 -> { renderCalendar(); updateEmptyState() }
+            1 -> choresTab.render()
             2 -> listsTab.render()
         }
     }
@@ -1217,6 +1223,7 @@ class BoardController(private val baseCtx: Context) {
                 setTextColor(MUTED)
                 setPadding(0, dp(10), 0, 0)
             })
+            appendSidebarChores()
             return
         }
         for (ev in todays) {
@@ -1247,6 +1254,63 @@ class BoardController(private val baseCtx: Context) {
             })
             row.addView(textCol, LinearLayout.LayoutParams(0, WRAP, 1f))
             todayList.addView(row, lpMatchWrap(bottom = dp(6)))
+        }
+        appendSidebarChores()
+    }
+
+    /** Compact "chores due today" block under the Today agenda. */
+    private fun appendSidebarChores() {
+        val status = try { org.json.JSONObject(Chores.statusJson(ctx)) } catch (e: Exception) { return }
+        val chores = status.getJSONArray("chores")
+        if (chores.length() == 0) return
+        val doneArr = status.getJSONArray("doneToday")
+        val done = (0 until doneArr.length()).map { doneArr.optString(it) }.toSet()
+        val members = status.getJSONArray("members")
+        val dow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+
+        val due = (0 until chores.length()).map { chores.getJSONObject(it) }
+            .filter { Chores.isDue(it, dow) }
+            .sortedBy { done.contains(it.optString("id")) }
+        if (due.isEmpty()) return
+
+        todayList.addView(TextView(ctx).apply {
+            text = "CHORES"
+            textSize = 13f
+            setTextColor(ACCENT)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            letterSpacing = 0.12f
+            setPadding(0, dp(14), 0, dp(4))
+        })
+        for (c in due.take(6)) {
+            val isDone = done.contains(c.optString("id"))
+            val member = (0 until members.length()).map { members.getJSONObject(it) }
+                .find { it.optString("id") == c.optString("memberId") }
+            val color = Members.parse(member?.optString("color") ?: "#A3A8B0")
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(6), 0, dp(6))
+                setOnClickListener {
+                    runCatching {
+                        Chores.mutate(ctx, org.json.JSONObject()
+                            .put("action", "toggle").put("choreId", c.optString("id")))
+                    }
+                }
+            }
+            row.addView(View(ctx).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    if (isDone) setColor(color) else { setColor(Color.TRANSPARENT); setStroke(dp(2), color) }
+                }
+            }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { rightMargin = dp(10) })
+            row.addView(TextView(ctx).apply {
+                text = "${c.optString("icon")} ${c.optString("title")}"
+                textSize = 14f
+                setTextColor(if (isDone) FAINT else INK)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            todayList.addView(row, lpMatchWrap())
         }
     }
 

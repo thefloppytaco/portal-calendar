@@ -71,9 +71,37 @@
 
   <div id="tabbar" style="display:flex;gap:8px;margin-bottom:16px;">
     <button data-tabbtn="calendar" onclick="showTab('calendar')" style="flex:1;">Calendar</button>
+    <button data-tabbtn="chores" class="ghost" onclick="showTab('chores')" style="flex:1;">Chores</button>
     <button data-tabbtn="lists" class="ghost" onclick="showTab('lists')" style="flex:1;">Lists</button>
     <button data-tabbtn="family" class="ghost" onclick="showTab('family')" style="flex:1;">Family</button>
     <button data-tabbtn="settings" class="ghost" onclick="showTab('settings')" style="flex:1;">Settings</button>
+  </div>
+
+  <div class="card" data-tab="chores">
+    <strong>Stars this week</strong>
+    <div id="starBox" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card" data-tab="chores">
+    <strong>Chores</strong>
+    <div id="choreBox" style="margin-top:8px;"></div>
+    <div style="border-top:1px solid #efece4;margin-top:14px;padding-top:12px;">
+      <strong style="font-size:14px;">Add a chore</strong>
+      <div class="row2" style="margin-top:8px;">
+        <select id="chIcon" style="margin:0;flex:none;width:84px;">
+          <option>⭐</option><option>🛏️</option><option>🦷</option><option>🧹</option>
+          <option>🐕</option><option>📚</option><option>🍽️</option><option>🧺</option>
+          <option>🚿</option><option>⚽</option><option>🎒</option><option>🗑️</option>
+        </select>
+        <input type="text" id="chTitle" placeholder="e.g. Make your bed" autocomplete="off" style="margin:0;">
+      </div>
+      <div class="row2">
+        <select id="chMember" style="margin:0;"></select>
+      </div>
+      <div id="chDays" style="display:flex;gap:6px;margin:6px 0 12px;"></div>
+      <button style="width:100%;" onclick="addChore()">Add chore</button>
+    </div>
+    <div id="choreMsg" class="msgline"></div>
   </div>
 
   <div class="card" data-tab="lists">
@@ -535,6 +563,7 @@ function showTab(name){
     b.className = b.dataset.tabbtn === name ? '' : 'ghost');
   if (name === 'lists') loadListsP();
   if (name === 'family') loadMembers();
+  if (name === 'chores') loadChores();
 }
 
 // ----- shared lists -----
@@ -595,6 +624,93 @@ function addItemP(listId){
   if (!inp.value.trim()) return;
   listAct({action:'addItem', listId, text: inp.value.trim()});
   inp.value = '';
+}
+
+// ----- chores & stars -----
+const DOW = [{n:'S',v:1},{n:'M',v:2},{n:'T',v:3},{n:'W',v:4},{n:'T',v:5},{n:'F',v:6},{n:'S',v:7}];
+let choreDays = [2,3,4,5,6]; // default school days
+let choreStatus = null;
+
+function renderDayChips(){
+  document.getElementById('chDays').innerHTML = DOW.map(d =>
+    `<button class="${choreDays.includes(d.v) ? '' : 'ghost'}" style="flex:1;padding:8px 0;"
+             onclick="toggleDay(${d.v})">${d.n}</button>`).join('');
+}
+function toggleDay(v){
+  choreDays = choreDays.includes(v) ? choreDays.filter(x => x !== v) : [...choreDays, v];
+  renderDayChips();
+}
+
+function memberName(id){
+  const m = (choreStatus?.members || []).find(m => m.id === id);
+  return m ? m.name : 'Anyone';
+}
+
+function renderChores(){
+  const st = choreStatus;
+  // Star tally with editable weekly goals
+  document.getElementById('starBox').innerHTML = (st.members || []).map(m => {
+    const stars = st.stars[m.id] || 0;
+    const goal = st.goals[m.id] || 10;
+    const pct = Math.min(100, Math.round(stars / goal * 100));
+    return `<div style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="dot" style="background:${esc(m.color)};"></div>
+        <strong style="flex:1;">${esc(m.name)}</strong>
+        <span>⭐ ${stars} / </span>
+        <input type="number" value="${goal}" min="1" max="99" style="width:64px;margin:0;padding:6px;"
+               onchange="choreAct({action:'setGoal',memberId:'${esc(m.id)}',goal:parseInt(this.value)||10})">
+      </div>
+      <div style="background:#efece4;border-radius:6px;height:10px;margin-top:6px;overflow:hidden;">
+        <div style="background:${esc(m.color)};width:${pct}%;height:100%;"></div>
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty">Add family members first (Family tab)</div>';
+
+  // Chore list
+  const dayNames = ['','Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  document.getElementById('choreBox').innerHTML = (st.chores || []).map(c => {
+    const days = (c.days || []).length === 7 ? 'Every day'
+      : (c.days || []).map(d => dayNames[d]).join(' ');
+    return `<div class="cal-row">
+      <span style="font-size:20px;">${esc(c.icon || '⭐')}</span>
+      <div class="grow">
+        <div class="cal-name">${esc(c.title)}</div>
+        <div class="cal-url">${esc(memberName(c.memberId))} · ${esc(days)}</div>
+      </div>
+      <button class="del" onclick="choreAct({action:'deleteChore',choreId:'${esc(c.id)}'})">✕</button>
+    </div>`;
+  }).join('') || '<div class="empty">No chores yet</div>';
+
+  // Member select for the add form
+  document.getElementById('chMember').innerHTML =
+    (st.members || []).map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+}
+
+async function loadChores(){
+  try { choreStatus = await (await fetch('/api/chores')).json(); renderChores(); renderDayChips(); }
+  catch(e){ show('choreMsg', e.message, false); }
+}
+
+async function choreAct(action){
+  try {
+    const r = await fetch('/api/chores', {method:'POST', body: JSON.stringify(action)});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    choreStatus = body; renderChores();
+  } catch(e){ show('choreMsg', e.message, false); }
+}
+
+function addChore(){
+  const title = document.getElementById('chTitle').value.trim();
+  if (!title) return show('choreMsg', 'Give the chore a name', false);
+  if (!choreDays.length) return show('choreMsg', 'Pick at least one day', false);
+  choreAct({action:'addChore', title,
+    icon: document.getElementById('chIcon').value,
+    memberId: document.getElementById('chMember').value,
+    days: choreDays});
+  document.getElementById('chTitle').value = '';
+  show('choreMsg', '✓ Added', true);
 }
 
 // ----- family members -----

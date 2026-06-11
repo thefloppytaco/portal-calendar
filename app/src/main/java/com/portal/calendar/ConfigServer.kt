@@ -65,6 +65,10 @@ class ConfigServer(
             json(FamilyLists.json(ctx))
         s.uri == "/api/lists" && s.method == Method.POST ->
             json(FamilyLists.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/chores" && s.method == Method.GET ->
+            json(Chores.statusJson(ctx))
+        s.uri == "/api/chores" && s.method == Method.POST ->
+            json(Chores.mutate(ctx, org.json.JSONObject(readBody(s))))
         s.uri == "/api/writers" && s.method == Method.GET ->
             json(Writers.statusJson(ctx))
         s.uri == "/api/target" && s.method == Method.POST -> {
@@ -154,10 +158,26 @@ class ConfigServer(
         else -> newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found")
     }
 
+    /**
+     * Reads the raw body as UTF-8. NanoHTTPD's parseBody() decodes bodies
+     * without an explicit charset as Latin-1, which mangles emoji and any
+     * non-ASCII text (chore icons, event titles…).
+     */
     private fun readBody(s: IHTTPSession): String {
-        val files = HashMap<String, String>()
-        s.parseBody(files)
-        return files["postData"] ?: ""
+        val len = s.headers["content-length"]?.toIntOrNull() ?: 0
+        if (len <= 0) {
+            val files = HashMap<String, String>()
+            s.parseBody(files)
+            return files["postData"] ?: ""
+        }
+        val buf = ByteArray(len)
+        var read = 0
+        while (read < len) {
+            val n = s.inputStream.read(buf, read, len - read)
+            if (n <= 0) break
+            read += n
+        }
+        return String(buf, 0, read, Charsets.UTF_8)
     }
 
     private fun json(body: String) =
