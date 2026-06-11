@@ -59,7 +59,9 @@ class BoardController(private val baseCtx: Context) {
     private var events: List<EventInstance> = emptyList()
     private var weekOffset = 0
     private var monthOffset = 0
-    private var isMonthMode = false
+    private var dayOffset = 0
+    private var scheduleOffset = 0
+    private var viewMode = VIEW_WEEK
     private var lastDayStamp = ""
     private var statusLine = "Starting…"
 
@@ -82,9 +84,12 @@ class BoardController(private val baseCtx: Context) {
     private lateinit var dayColumns: List<LinearLayout>
     private lateinit var weekContainer: LinearLayout
     private lateinit var monthContainer: LinearLayout
+    private lateinit var dayBox: LinearLayout
+    private lateinit var dayContainer: ScrollView
+    private lateinit var scheduleBox: LinearLayout
+    private lateinit var scheduleContainer: ScrollView
     private lateinit var monthCells: List<MonthCell>
-    private lateinit var weekToggle: TextView
-    private lateinit var monthToggle: TextView
+    private lateinit var viewToggles: List<TextView>
     private lateinit var weekPanel: LinearLayout
     private lateinit var setupPanel: LinearLayout
     private lateinit var setupQr: ImageView
@@ -263,9 +268,11 @@ class BoardController(private val baseCtx: Context) {
     fun resetView() {
         weekOffset = 0
         monthOffset = 0
+        dayOffset = 0
+        scheduleOffset = 0
         closeOverlays()
         if (currentTab != 0) setTab(0)
-        if (isMonthMode) setMode(false) else renderCalendar()
+        setView(VIEW_WEEK)
     }
 
     private fun buildSidebar(): View {
@@ -397,14 +404,20 @@ class BoardController(private val baseCtx: Context) {
         nav.addView(monthLabel, LinearLayout.LayoutParams(0, WRAP, 1f))
         nav.addView(accentButton("+ Add") { showAddOverlay(Calendar.getInstance()) })
         nav.addView(spacer(dp(10)))
-        weekToggle = navButton("Week") { setMode(false) }
-        monthToggle = navButton("Month") { setMode(true) }
-        nav.addView(weekToggle)
-        nav.addView(monthToggle)
+        val toggles = ArrayList<TextView>()
+        listOf("Day", "Week", "Month", "Plan").forEachIndexed { i, label ->
+            val t = navButton(label) { setView(i) }
+            toggles.add(t)
+            nav.addView(t)
+        }
+        viewToggles = toggles
         nav.addView(spacer(dp(10)))
-        nav.addView(navButton("‹") { if (isMonthMode) monthOffset-- else weekOffset--; renderCalendar() })
-        nav.addView(navButton("Today") { weekOffset = 0; monthOffset = 0; renderCalendar() })
-        nav.addView(navButton("›") { if (isMonthMode) monthOffset++ else weekOffset++; renderCalendar() })
+        nav.addView(navButton("‹") { moveOffset(-1); renderCalendar() })
+        nav.addView(navButton("Today") {
+            weekOffset = 0; monthOffset = 0; dayOffset = 0; scheduleOffset = 0
+            renderCalendar()
+        })
+        nav.addView(navButton("›") { moveOffset(1); renderCalendar() })
         weekPanel.addView(nav, lpMatchWrap(bottom = dp(14)))
         styleToggles()
 
@@ -468,6 +481,20 @@ class BoardController(private val baseCtx: Context) {
         monthContainer = buildMonthContainer()
         monthContainer.visibility = View.GONE
         weekPanel.addView(monthContainer, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        dayBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        dayContainer = ScrollView(ctx).apply {
+            isVerticalScrollBarEnabled = false
+            visibility = View.GONE
+            addView(dayBox, FrameLayout.LayoutParams(MATCH, WRAP))
+        }
+        weekPanel.addView(dayContainer, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        scheduleBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        scheduleContainer = ScrollView(ctx).apply {
+            isVerticalScrollBarEnabled = false
+            visibility = View.GONE
+            addView(scheduleBox, FrameLayout.LayoutParams(MATCH, WRAP))
+        }
+        weekPanel.addView(scheduleContainer, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
         // First-run setup panel ------------------------------------------
         setupPanel = LinearLayout(ctx).apply {
@@ -602,21 +629,30 @@ class BoardController(private val baseCtx: Context) {
         return container
     }
 
-    private fun setMode(month: Boolean) {
-        isMonthMode = month
-        weekContainer.visibility = if (month) View.GONE else View.VISIBLE
-        monthContainer.visibility = if (month) View.VISIBLE else View.GONE
+    private fun setView(mode: Int) {
+        viewMode = mode
+        dayContainer.visibility = if (mode == VIEW_DAY) View.VISIBLE else View.GONE
+        weekContainer.visibility = if (mode == VIEW_WEEK) View.VISIBLE else View.GONE
+        monthContainer.visibility = if (mode == VIEW_MONTH) View.VISIBLE else View.GONE
+        scheduleContainer.visibility = if (mode == VIEW_SCHEDULE) View.VISIBLE else View.GONE
         styleToggles()
         renderCalendar()
     }
 
-    private fun styleToggles() {
-        fun style(btn: TextView, active: Boolean) {
-            btn.background = rounded(if (active) ACCENT else PILL, 20)
-            btn.setTextColor(if (active) Color.WHITE else INK)
+    private fun moveOffset(delta: Int) {
+        when (viewMode) {
+            VIEW_DAY -> dayOffset += delta
+            VIEW_WEEK -> weekOffset += delta
+            VIEW_MONTH -> monthOffset += delta
+            VIEW_SCHEDULE -> scheduleOffset += delta
         }
-        style(weekToggle, !isMonthMode)
-        style(monthToggle, isMonthMode)
+    }
+
+    private fun styleToggles() {
+        viewToggles.forEachIndexed { i, btn ->
+            btn.background = rounded(if (i == viewMode) ACCENT else PILL, 20)
+            btn.setTextColor(if (i == viewMode) Color.WHITE else INK)
+        }
     }
 
     private fun spacer(w: Int): View = View(ctx).apply {
@@ -1080,7 +1116,161 @@ class BoardController(private val baseCtx: Context) {
     // ------------------------------------------------------------- render
 
     private fun renderCalendar() {
-        if (isMonthMode) renderMonth() else renderWeek()
+        when (viewMode) {
+            VIEW_DAY -> renderDay()
+            VIEW_WEEK -> renderWeek()
+            VIEW_MONTH -> renderMonth()
+            VIEW_SCHEDULE -> renderSchedule()
+        }
+    }
+
+    private fun renderDay() {
+        val dayCal = Calendar.getInstance()
+        dayCal.set(Calendar.HOUR_OF_DAY, 0); dayCal.set(Calendar.MINUTE, 0)
+        dayCal.set(Calendar.SECOND, 0); dayCal.set(Calendar.MILLISECOND, 0)
+        dayCal.add(Calendar.DAY_OF_MONTH, dayOffset)
+        val dayStart = dayCal.timeInMillis
+        val dayEnd = (dayCal.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
+
+        val fmt = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault())
+        monthLabel.text = when (dayOffset) {
+            0 -> "Today · " + fmt.format(dayCal.time)
+            1 -> "Tomorrow · " + fmt.format(dayCal.time)
+            else -> fmt.format(dayCal.time)
+        }
+
+        dayBox.removeAllViews()
+        val evs = eventsInRange(dayStart, dayEnd)
+        if (evs.isEmpty()) {
+            dayBox.addView(TextView(ctx).apply {
+                text = "Nothing scheduled ✨"
+                textSize = 22f
+                setTextColor(MUTED)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(120), 0, 0)
+            }, lpMatchWrap())
+            return
+        }
+        for (ev in evs) {
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setOnClickListener { showDetails(ev) }
+            }
+            row.addView(TextView(ctx).apply {
+                text = if (ev.allDay) "All day"
+                       else if (ev.start < dayStart) "…" + timeFormat().format(ev.end)
+                       else timeFormat().format(ev.start)
+                textSize = 19f
+                setTextColor(MUTED)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            }, LinearLayout.LayoutParams(dp(130), WRAP))
+            val card = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = rounded(mix(ev.color, CARD, 0.88f), 14)
+                elevation = dp(1).toFloat()
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+            }
+            card.addView(View(ctx).apply { background = rounded(ev.color, 3) },
+                LinearLayout.LayoutParams(dp(5), dp(38)).apply { rightMargin = dp(14) })
+            val textCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+            textCol.addView(TextView(ctx).apply {
+                text = ev.title
+                textSize = 18f
+                setTextColor(INK)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            textCol.addView(TextView(ctx).apply {
+                text = buildString {
+                    if (!ev.allDay) {
+                        append(timeFormat().format(ev.start))
+                        if (ev.end > ev.start) append(" – ").append(timeFormat().format(ev.end))
+                    } else append("All day")
+                    ev.location?.let { append("   📍 ").append(it) }
+                }
+                textSize = 13f
+                setTextColor(MUTED)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            card.addView(textCol, LinearLayout.LayoutParams(0, WRAP, 1f))
+            row.addView(card, LinearLayout.LayoutParams(0, WRAP, 1f))
+            dayBox.addView(row, lpMatchWrap(bottom = dp(10)))
+        }
+    }
+
+    private fun renderSchedule() {
+        val start = Calendar.getInstance()
+        start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0)
+        start.set(Calendar.SECOND, 0); start.set(Calendar.MILLISECOND, 0)
+        start.add(Calendar.DAY_OF_MONTH, scheduleOffset * 14)
+        val rangeFmt = SimpleDateFormat("MMM d", Locale.getDefault())
+        val endCal = (start.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 13) }
+        monthLabel.text = rangeFmt.format(start.time) + " – " + rangeFmt.format(endCal.time)
+
+        scheduleBox.removeAllViews()
+        var any = false
+        val dayHeaderFmt = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault())
+        for (i in 0 until 14) {
+            val dayCal = (start.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, i) }
+            val dayStart = dayCal.timeInMillis
+            val dayEnd = (dayCal.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
+            val evs = eventsInRange(dayStart, dayEnd)
+            if (evs.isEmpty()) continue
+            any = true
+            val isToday = scheduleOffset == 0 && i == 0
+            val prefix = if (scheduleOffset == 0) when (i) {
+                0 -> "Today · "; 1 -> "Tomorrow · "; else -> ""
+            } else ""
+            scheduleBox.addView(TextView(ctx).apply {
+                text = prefix + dayHeaderFmt.format(dayCal.time)
+                textSize = 15f
+                setTextColor(if (isToday) ACCENT else MUTED)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setPadding(dp(4), dp(12), 0, dp(6))
+            }, lpMatchWrap())
+            for (ev in evs) {
+                val row = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = rounded(CARD, 12)
+                    elevation = dp(1).toFloat()
+                    setPadding(dp(14), dp(11), dp(14), dp(11))
+                    setOnClickListener { showDetails(ev) }
+                }
+                row.addView(View(ctx).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(ev.color)
+                    }
+                }, LinearLayout.LayoutParams(dp(12), dp(12)).apply { rightMargin = dp(12) })
+                row.addView(TextView(ctx).apply {
+                    text = if (ev.allDay) "All day" else timeFormat().format(ev.start)
+                    textSize = 14f
+                    setTextColor(MUTED)
+                }, LinearLayout.LayoutParams(dp(96), WRAP))
+                row.addView(TextView(ctx).apply {
+                    text = ev.title
+                    textSize = 16f
+                    setTextColor(INK)
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                scheduleBox.addView(row, lpMatchWrap(bottom = dp(6)))
+            }
+        }
+        if (!any) {
+            scheduleBox.addView(TextView(ctx).apply {
+                text = "Nothing in these two weeks ✨"
+                textSize = 22f
+                setTextColor(MUTED)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(120), 0, 0)
+            }, lpMatchWrap())
+        }
     }
 
     private fun renderMonth() {
@@ -1154,6 +1344,8 @@ class BoardController(private val baseCtx: Context) {
             if (!firstRun) {
                 weekOffset = 0
                 monthOffset = 0
+                dayOffset = 0
+                scheduleOffset = 0
                 renderToday()
                 renderCalendar()
             }
@@ -1444,6 +1636,10 @@ class BoardController(private val baseCtx: Context) {
         private const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         private const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
         private const val SYNC_INTERVAL_MS = 15L * 60 * 1000
+        private const val VIEW_DAY = 0
+        private const val VIEW_WEEK = 1
+        private const val VIEW_MONTH = 2
+        private const val VIEW_SCHEDULE = 3
 
         // Warm-paper light theme
         private val BG = 0xFFF4F1EA.toInt()          // warm paper background
