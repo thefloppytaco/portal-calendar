@@ -30,7 +30,9 @@ object GoogleCal {
     private const val TOKEN_URL = "https://oauth2.googleapis.com/token"
     private const val API = "https://www.googleapis.com/calendar/v3"
     private const val SCOPES =
-        "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly"
+        "https://www.googleapis.com/auth/calendar.events " +
+        "https://www.googleapis.com/auth/calendar.readonly " +
+        "https://www.googleapis.com/auth/tasks"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -135,6 +137,9 @@ object GoogleCal {
                 throw IllegalArgumentException("Google refused the event (HTTP ${resp.code}) — try reconnecting Google")
         }
     }
+
+    /** A fresh access token for sibling Google APIs (Tasks). */
+    fun bearer(ctx: Context): String = accessToken(ctx)
 
     // ------------------------------------------------------------ plumbing
 

@@ -104,6 +104,17 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
             for (e in ical.events) {
                 if (e.status?.value?.equals("CANCELLED", true) == true) continue
                 val ds = e.dateStart ?: continue
+
+                // Magic-word events route to lists/chores and never render.
+                val magic = MagicWords.match(e.summary?.value ?: "")
+                if (magic != null) {
+                    val uid = e.uid?.value ?: (feed.url + (e.summary?.value ?: ""))
+                    if (MagicWords.markProcessed(ctx, uid)) {
+                        runCatching { MagicWords.execute(ctx, magic, ds.value.time) }
+                    }
+                    continue
+                }
+
                 val allDay = !ds.value.hasTime()
                 val durMs = durationMs(e, allDay)
                 val title = e.summary?.value?.trim().takeUnless { it.isNullOrEmpty() } ?: "(untitled)"

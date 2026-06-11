@@ -350,6 +350,16 @@
       </ol>
     </details>
     <details>
+      <summary>Magic words — send things from any calendar</summary>
+      <p style="font-size:14px;color:#4d535e;margin:8px 0 6px;">Create a calendar event anywhere (your phone, work laptop…) with one of these titles, and the Portal hides it from the calendar and routes it instead:</p>
+      <ol>
+        <li><code>todo: pick up dry cleaning</code> → the "To-Do" list</li>
+        <li><code>groceries: oat milk</code> → the "Groceries" list</li>
+        <li><code>chore: Chani water the plants</code> → a one-time chore on the event's date — a family member's name in the text assigns it to them</li>
+      </ol>
+      <p style="font-size:13px;color:#737983;margin:6px 0 2px;">Each event is processed once, and stays in your real calendar as a record. The Portal sees it on its next feed sync (within ~15 min).</p>
+    </details>
+    <details>
       <summary>Good to know</summary>
       <ol>
         <li>These links give read-only access to the calendar — treat them like passwords and only paste them here.</li>
@@ -647,9 +657,14 @@ function renderListsP(){
   }
   box.innerHTML = pageLists.map(l => {
     const items = l.items.slice().sort((a,b)=>(a.done?1:0)-(b.done?1:0));
+    const gBtn = !writers.google || !writers.google.connected ? ''
+      : l.gtasksId
+        ? `<button class="ghost" style="padding:6px 10px;font-size:13px;" onclick="gtasksAct('unlink','${esc(l.id)}')">⇄ Synced</button>`
+        : `<button class="ghost" style="padding:6px 10px;font-size:13px;" onclick="gtasksAct('link','${esc(l.id)}')">⇄ Google Tasks</button>`;
     return `<div style="margin-bottom:18px;">
       <div style="display:flex;align-items:center;gap:8px;">
         <strong style="flex:1;font-size:17px;">${esc(l.name)}</strong>
+        ${gBtn}
         <button class="ghost" style="padding:6px 10px;font-size:13px;" onclick="listAct({action:'clearDone',listId:'${esc(l.id)}'})">Clear done</button>
         <button class="del" onclick="listAct({action:'deleteList',listId:'${esc(l.id)}'})">✕</button>
       </div>
@@ -694,6 +709,17 @@ function addItemP(listId){
   if (!inp.value.trim()) return;
   listAct({action:'addItem', listId, text: inp.value.trim()});
   inp.value = '';
+}
+
+async function gtasksAct(op, listId){
+  show('listsMsg', op === 'link' ? 'Linking with Google Tasks…' : 'Unlinking…', true);
+  try {
+    const r = await fetch('/api/gtasks/' + op, {method:'POST', body: JSON.stringify({listId})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    pageLists = body; renderListsP();
+    show('listsMsg', op === 'link' ? '✓ Two-way sync with Google Tasks is on' : 'Sync removed', true);
+  } catch(e){ show('listsMsg', e.message, false); }
 }
 
 // ----- chores & stars -----

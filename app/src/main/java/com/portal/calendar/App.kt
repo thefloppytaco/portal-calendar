@@ -68,6 +68,16 @@ class App : Application() {
         main.post { configListeners.forEach { it() } }
     }
 
+    /** Debounced Google Tasks reconcile after local list edits / on the sync loop. */
+    private val tasksSyncRunnable = Runnable {
+        Thread { runCatching { GoogleTasks.syncAll(this) } }.start()
+    }
+
+    fun kickTasksSync(delayMs: Long = 2500) {
+        main.removeCallbacks(tasksSyncRunnable)
+        main.postDelayed(tasksSyncRunnable, delayMs)
+    }
+
     /** Local family data changed (lists/chores/meals/members) — cheaper than a feed re-sync. */
     private val dataListeners = CopyOnWriteArraySet<() -> Unit>()
     fun addDataListener(l: () -> Unit) = dataListeners.add(l)

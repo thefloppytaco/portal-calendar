@@ -259,6 +259,7 @@ class BoardController(private val baseCtx: Context) {
 
     private fun doSync() {
         Thread { Weather.maybeRefresh(ctx) }.start()
+        App.instance.kickTasksSync(0)
         if (store.feeds().isEmpty()) {
             events = emptyList()
             statusLine = "No calendars configured yet"

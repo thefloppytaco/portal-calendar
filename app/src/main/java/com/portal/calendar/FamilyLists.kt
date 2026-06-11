@@ -49,21 +49,43 @@ object FamilyLists {
                 item.put("done", !item.optBoolean("done"))
             }
             "deleteItem" -> {
-                val items = list(arr, action).getJSONArray("items")
+                val l = list(arr, action)
+                val items = l.getJSONArray("items")
                 val id = action.getString("itemId")
-                for (i in items.length() - 1 downTo 0)
-                    if (items.getJSONObject(i).optString("id") == id) items.remove(i)
+                for (i in items.length() - 1 downTo 0) {
+                    val item = items.getJSONObject(i)
+                    if (item.optString("id") == id) {
+                        queueRemoteDelete(l, item)
+                        items.remove(i)
+                    }
+                }
             }
             "clearDone" -> {
-                val items = list(arr, action).getJSONArray("items")
-                for (i in items.length() - 1 downTo 0)
-                    if (items.getJSONObject(i).optBoolean("done")) items.remove(i)
+                val l = list(arr, action)
+                val items = l.getJSONArray("items")
+                for (i in items.length() - 1 downTo 0) {
+                    val item = items.getJSONObject(i)
+                    if (item.optBoolean("done")) {
+                        queueRemoteDelete(l, item)
+                        items.remove(i)
+                    }
+                }
             }
             else -> throw IllegalArgumentException("unknown action")
         }
         Data.writeArray(ctx, FILE, arr)
         App.instance.notifyDataChanged()
+        App.instance.kickTasksSync()
         return arr.toString()
+    }
+
+    /** Remembers a synced item's Google id so the next sync pass deletes it remotely. */
+    private fun queueRemoteDelete(list: JSONObject, item: JSONObject) {
+        val gtaskId = item.optString("gtaskId")
+        if (gtaskId.isEmpty() || list.optString("gtasksId").isEmpty()) return
+        val q = list.optJSONArray("deletedGtaskIds")
+            ?: JSONArray().also { list.put("deletedGtaskIds", it) }
+        q.put(gtaskId)
     }
 
     private fun list(arr: JSONArray, action: JSONObject): JSONObject {
