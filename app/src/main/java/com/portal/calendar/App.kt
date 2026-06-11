@@ -68,6 +68,14 @@ class App : Application() {
         main.post { configListeners.forEach { it() } }
     }
 
+    /** Local family data changed (lists/chores/meals/members) — cheaper than a feed re-sync. */
+    private val dataListeners = CopyOnWriteArraySet<() -> Unit>()
+    fun addDataListener(l: () -> Unit) = dataListeners.add(l)
+    fun removeDataListener(l: () -> Unit) = dataListeners.remove(l)
+    fun notifyDataChanged() {
+        main.post { dataListeners.forEach { it() } }
+    }
+
     private fun onDreamEvent(action: String) {
         if (!Screensaver.isEnabled(this)) return
         val pm = getSystemService(PowerManager::class.java) ?: return

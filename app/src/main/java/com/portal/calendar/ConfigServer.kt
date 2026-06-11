@@ -40,6 +40,31 @@ class ConfigServer(
             onConfigChanged()
             json("{\"ok\":true}")
         }
+        s.uri == "/manifest.json" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "application/json", """
+                {"name":"Family Calendar","short_name":"Family",
+                 "start_url":"/","display":"standalone",
+                 "background_color":"#f4f1ea","theme_color":"#f0584c",
+                 "icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml"}]}
+            """.trimIndent())
+        s.uri == "/icon.svg" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "image/svg+xml",
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">" +
+                "<rect width=\"100\" height=\"100\" rx=\"24\" fill=\"#F0584C\"/>" +
+                "<rect x=\"16\" y=\"28\" width=\"68\" height=\"56\" rx=\"10\" fill=\"white\"/>" +
+                "<rect x=\"24\" y=\"42\" width=\"32\" height=\"9\" rx=\"4.5\" fill=\"#2BB3A3\"/>" +
+                "<rect x=\"24\" y=\"56\" width=\"44\" height=\"9\" rx=\"4.5\" fill=\"#F2A93B\"/>" +
+                "<rect x=\"24\" y=\"70\" width=\"24\" height=\"9\" rx=\"4.5\" fill=\"#4FA3E3\"/></svg>")
+        s.uri == "/api/members" && s.method == Method.GET ->
+            json(Members.json(ctx))
+        s.uri == "/api/members" && s.method == Method.POST -> {
+            Members.save(ctx, readBody(s))
+            json(Members.json(ctx))
+        }
+        s.uri == "/api/lists" && s.method == Method.GET ->
+            json(FamilyLists.json(ctx))
+        s.uri == "/api/lists" && s.method == Method.POST ->
+            json(FamilyLists.mutate(ctx, org.json.JSONObject(readBody(s))))
         s.uri == "/api/writers" && s.method == Method.GET ->
             json(Writers.statusJson(ctx))
         s.uri == "/api/target" && s.method == Method.POST -> {

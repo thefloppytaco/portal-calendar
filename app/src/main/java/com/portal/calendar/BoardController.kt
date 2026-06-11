@@ -63,6 +63,12 @@ class BoardController(private val baseCtx: Context) {
     private var lastDayStamp = ""
     private var statusLine = "Starting…"
 
+    // Top-level tabs: 0=Calendar 1=Chores 2=Lists 3=Meals
+    private var currentTab = 0
+    private lateinit var tabButtons: List<TextView>
+    private lateinit var tabPanels: List<View>
+    private lateinit var listsTab: ListsTab
+
     private lateinit var clockText: TextView
     private lateinit var dateText: TextView
     private lateinit var statusText: TextView
@@ -161,9 +167,14 @@ class BoardController(private val baseCtx: Context) {
         (baseCtx as? android.app.Activity)?.recreate()
     }
 
+    private val dataListener: () -> Unit = {
+        if (currentTab == 2) listsTab.render()
+    }
+
     fun start() {
         App.instance.activeBoard = this
         App.instance.addConfigListener(configListener)
+        App.instance.addDataListener(dataListener)
         exitButton.visibility = if (onExit != null) View.VISIBLE else View.GONE
         renderAll()
         handler.post(clockTick)
@@ -173,6 +184,7 @@ class BoardController(private val baseCtx: Context) {
     fun stop() {
         handler.removeCallbacksAndMessages(null)
         App.instance.removeConfigListener(configListener)
+        App.instance.removeDataListener(dataListener)
         if (App.instance.activeBoard === this) App.instance.activeBoard = null
     }
 
@@ -242,11 +254,12 @@ class BoardController(private val baseCtx: Context) {
         return root
     }
 
-    /** Back to week view of the current week (idle takeover always lands here). */
+    /** Back to the calendar tab, week view, current week (idle takeover lands here). */
     fun resetView() {
         weekOffset = 0
         monthOffset = 0
         closeOverlays()
+        if (currentTab != 0) setTab(0)
         if (isMonthMode) setMode(false) else renderCalendar()
     }
 
@@ -323,13 +336,48 @@ class BoardController(private val baseCtx: Context) {
     }
 
     private fun buildMainArea(): View {
+        val outer = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+
+        // Top-level tab strip ---------------------------------------------
+        val tabRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(22), dp(12), dp(22), 0)
+        }
+        val tabs = ArrayList<TextView>()
+        listOf("Calendar", "Chores", "Lists", "Meals").forEachIndexed { i, label ->
+            val t = TextView(ctx).apply {
+                text = label
+                textSize = 15f
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setPadding(dp(18), dp(8), dp(18), dp(8))
+                setOnClickListener { setTab(i) }
+            }
+            tabRow.addView(t, LinearLayout.LayoutParams(WRAP, WRAP).apply {
+                rightMargin = dp(8)
+            })
+            tabs.add(t)
+        }
+        tabButtons = tabs
+        outer.addView(tabRow, lpMatchWrap())
+
         val area = FrameLayout(ctx)
+        outer.addView(area, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
         weekPanel = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(18), dp(22), dp(16))
+            setPadding(dp(22), dp(10), dp(22), dp(16))
         }
         area.addView(weekPanel, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        // Other tabs ---------------------------------------------------------
+        listsTab = ListsTab(ctx)
+        area.addView(listsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
+        val choresPlaceholder = placeholderPanel("Chores are coming in the next update")
+        area.addView(choresPlaceholder, FrameLayout.LayoutParams(MATCH, MATCH))
+        val mealsPlaceholder = placeholderPanel("Meal planning is coming in the next update")
+        area.addView(mealsPlaceholder, FrameLayout.LayoutParams(MATCH, MATCH))
+        tabPanels = listOf(weekPanel, choresPlaceholder, listsTab.view, mealsPlaceholder)
 
         // Nav row -------------------------------------------------------
         val nav = LinearLayout(ctx).apply {
@@ -450,7 +498,47 @@ class BoardController(private val baseCtx: Context) {
             gravity = Gravity.CENTER
         }, lpMatchWrap(top = dp(6)))
         area.addView(setupPanel, FrameLayout.LayoutParams(MATCH, MATCH))
-        return area
+        setTab(0)
+        return outer
+    }
+
+    private fun setTab(i: Int) {
+        currentTab = i
+        tabPanels.forEachIndexed { idx, p ->
+            p.visibility = if (idx == i) View.VISIBLE else View.GONE
+        }
+        tabButtons.forEachIndexed { idx, b ->
+            b.background = rounded(if (idx == i) ACCENT else PILL, 18)
+            b.setTextColor(if (idx == i) Color.WHITE else INK)
+        }
+        when (i) {
+            0 -> { renderCalendar(); updateEmptyState() }
+            2 -> listsTab.render()
+        }
+    }
+
+    private fun placeholderPanel(message: String): FrameLayout =
+        FrameLayout(ctx).apply {
+            visibility = View.GONE
+            addView(TextView(ctx).apply {
+                text = message
+                textSize = 18f
+                setTextColor(MUTED)
+                gravity = Gravity.CENTER
+            }, FrameLayout.LayoutParams(MATCH, MATCH))
+        }
+
+    /** Calendar tab shows either the board or the first-run QR panel. */
+    private fun updateEmptyState() {
+        val empty = store.feeds().isEmpty()
+        val cal = currentTab == 0
+        weekPanel.visibility = if (cal && !empty) View.VISIBLE else View.GONE
+        setupPanel.visibility = if (cal && empty) View.VISIBLE else View.GONE
+        if (cal && empty) {
+            val url = setupUrl()
+            setupUrlText.text = url
+            setupQr.setImageBitmap(qrBitmap(url, dp(252)))
+        }
     }
 
     private fun buildMonthContainer(): LinearLayout {
@@ -1046,15 +1134,7 @@ class BoardController(private val baseCtx: Context) {
         renderCalendar()
         renderLegend()
         statusText.text = statusLine
-
-        val empty = store.feeds().isEmpty()
-        weekPanel.visibility = if (empty) View.GONE else View.VISIBLE
-        setupPanel.visibility = if (empty) View.VISIBLE else View.GONE
-        if (empty) {
-            val url = setupUrl()
-            setupUrlText.text = url
-            setupQr.setImageBitmap(qrBitmap(url, dp(252)))
-        }
+        updateEmptyState()
     }
 
     private fun updateClock() {
