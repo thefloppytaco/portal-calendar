@@ -81,6 +81,13 @@ class ConfigServer(
             json(Meals.statusJson(ctx))
         s.uri == "/api/meals" && s.method == Method.POST ->
             json(Meals.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/setup" && s.method == Method.GET ->
+            json("{\"fresh\":${store.feeds().isEmpty() && !store.wizardDone()}}")
+        s.uri == "/api/setup" && s.method == Method.POST -> {
+            readBody(s) // drain — an unread body corrupts the next keep-alive request
+            store.setWizardDone()
+            json("{\"fresh\":false}")
+        }
         s.uri == "/api/features" && s.method == Method.GET ->
             json(org.json.JSONObject()
                 .put("chores", store.featureEnabled("chores"))

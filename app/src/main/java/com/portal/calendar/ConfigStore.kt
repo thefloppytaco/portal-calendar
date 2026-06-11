@@ -54,6 +54,13 @@ class ConfigStore(ctx: Context) {
         prefs.edit().putString(KEY, clean.toString()).apply()
     }
 
+    /** Set once the setup wizard finishes or is skipped — never auto-launch again. */
+    fun wizardDone(): Boolean = prefs.getBoolean("wizard_done", false)
+
+    fun setWizardDone() {
+        prefs.edit().putBoolean("wizard_done", true).apply()
+    }
+
     /** Board tab visibility: "chores" / "lists" / "meals", all on by default. */
     fun featureEnabled(key: String): Boolean = prefs.getBoolean("feature_$key", true)
 

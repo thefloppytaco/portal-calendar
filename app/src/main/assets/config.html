@@ -58,6 +58,29 @@
   .btnrow button { flex: 1; }
   .msgline { min-height: 22px; font-size: 14px; margin-top: 10px; }
   .msgline.ok { color: #2e9e4f; } .msgline.err { color: #d63b2f; }
+
+  /* ----- setup wizard ----- */
+  #wizard {
+    display: none; position: fixed; inset: 0; z-index: 50;
+    background: #f4f1ea; flex-direction: column; overflow-y: auto;
+  }
+  .wiz-top {
+    display: flex; align-items: center; padding: 16px;
+  }
+  .wiz-dots { flex: 1; display: flex; gap: 7px; justify-content: center; }
+  .wiz-dot { width: 9px; height: 9px; border-radius: 50%; background: #ddd8cc; transition: all .2s; }
+  .wiz-dot.on { background: #f0584c; width: 22px; border-radius: 5px; }
+  .wiz-skip { color: #737983; font-size: 14px; background: none; border: none; padding: 8px; }
+  .wiz-body { flex: 1; max-width: 560px; width: 100%; margin: 0 auto; padding: 8px 20px 16px; }
+  .wiz-kicker { color: #f0584c; font-size: 13px; font-weight: 600; letter-spacing: .12em; }
+  .wiz-title { font-size: 26px; font-weight: 700; margin: 6px 0 8px; line-height: 1.2; }
+  .wiz-sub { color: #737983; font-size: 15px; line-height: 1.5; margin-bottom: 18px; }
+  .wiz-nav {
+    max-width: 560px; width: 100%; margin: 0 auto; padding: 8px 20px 28px;
+    display: flex; gap: 10px;
+  }
+  .wiz-nav button { flex: 1; padding: 15px; font-size: 16px; border-radius: 14px; }
+  .wiz-emoji { font-size: 44px; margin: 4px 0 10px; }
   details { margin-top: 4px; }
   summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
   ol { padding-left: 20px; color: #4d535e; font-size: 14px; }
@@ -68,6 +91,16 @@
 </style>
 </head>
 <body>
+  <div id="wizard">
+    <div class="wiz-top">
+      <div style="width:90px;"></div>
+      <div class="wiz-dots" id="wizDots"></div>
+      <button class="wiz-skip" style="width:90px;" onclick="exitWizard()">Skip setup</button>
+    </div>
+    <div class="wiz-body" id="wizBody"></div>
+    <div class="wiz-nav" id="wizNav"></div>
+  </div>
+
   <h1>Family Calendar</h1>
   <div class="sub">Your family hub, served straight from the Portal</div>
 
@@ -327,6 +360,7 @@
 
   <div class="btnrow" data-tab="settings">
     <button class="ghost" onclick="syncNow()">Sync the Portal now</button>
+    <button class="ghost" onclick="showWizard()">Run setup wizard</button>
   </div>
   <div id="msg" class="msgline"></div>
 
@@ -1045,7 +1079,309 @@ async function saveMembers(){
   } catch(e){ show('memMsg', e.message, false); }
 }
 
+// ===================== setup wizard =====================
+let wizStep = 0;
+let wizMembers = [];
+const WIZ_PALETTE = ['#f0584c','#2bb3a3','#f2a93b','#4fa3e3','#8e7cc3','#e87ea1'];
+
+const WIZ_STEPS = [
+  { kicker: 'WELCOME', title: 'Let’s turn this Portal into your family hub',
+    body: () => `
+      <div class="wiz-emoji">👋</div>
+      <div class="wiz-sub">In about three minutes we'll connect your family's calendars,
+      set up the people and the look, and switch on the always-on board.
+      Everything here can be changed later — and you can skip any step.</div>
+      <div class="card">
+        <strong>What you'll set up</strong>
+        <ol style="margin:8px 0 2px;">
+          <li>Who's in the family (names &amp; colors)</li>
+          <li>The calendars to show</li>
+          <li>Adding events from the Portal (optional)</li>
+          <li>Weather, screensaver and display size</li>
+        </ol>
+      </div>`,
+    next: 'Get started' },
+
+  { kicker: 'STEP 1 · FAMILY', title: 'Who’s in the family?',
+    body: () => `
+      <div class="wiz-sub">Each person gets a color that follows them everywhere —
+      their events, their chores, their stars.</div>
+      <div class="card" id="wizMembersBox"></div>
+      <button class="ghost" style="width:100%;" onclick="wizAddMemberRow()">+ Add another person</button>`,
+    onShow: async () => {
+      try { wizMembers = await (await fetch('/api/members')).json(); } catch(e){ wizMembers = []; }
+      if (!wizMembers.length) wizMembers = [{name:'', color: WIZ_PALETTE[0]}];
+      wizRenderMembers();
+    },
+    onNext: async () => {
+      const keep = wizMembers.filter(m => m.name.trim());
+      if (keep.length) await fetch('/api/members', {method:'POST', body: JSON.stringify(keep)});
+      return true;
+    } },
+
+  { kicker: 'STEP 2 · CALENDARS', title: 'Connect the calendars',
+    body: () => `
+      <div class="wiz-sub">The board shows everyone's events together. Paste each person's
+      calendar link — the Portal checks it instantly.</div>
+      <div class="card">
+        <div id="wizCalList"></div>
+        <input type="text" id="wizCalName" placeholder="Whose calendar? e.g. Mom" autocomplete="off">
+        <input type="url" id="wizCalUrl" placeholder="Calendar link (https:// or webcal://)" autocomplete="off">
+        <div class="row2"><label>Color</label><input type="color" id="wizCalColor" value="#4fa3e3"></div>
+        <button style="width:100%;" onclick="wizAddCal()">Add this calendar</button>
+        <div id="wizCalMsg" class="msgline"></div>
+      </div>
+      <div class="card">
+        <details><summary>Where do I find the link?</summary>
+          <ol>
+            <li><strong>Google:</strong> on a computer, calendar.google.com → Settings →
+            the calendar → Integrate calendar → copy <em>"Secret address in iCal format"</em>.</li>
+            <li><strong>Apple/iCloud:</strong> iPhone Calendar app → Calendars → ⓘ →
+            turn on <em>Public Calendar</em> → Share Link → Copy.</li>
+            <li>Treat these links like passwords — they give read access.</li>
+          </ol>
+        </details>
+      </div>`,
+    onShow: async () => { await wizRefreshCals(); },
+    nextLabel: () => 'Continue' },
+
+  { kicker: 'STEP 3 · ADD EVENTS', title: 'Want to add events from the Portal?',
+    body: () => `
+      <div class="wiz-sub">Optional: connect iCloud once and anyone can add events from the
+      board or this page — they appear in the real calendar on everyone's phones.</div>
+      <div class="card">
+        <strong>iCloud</strong>
+        <div id="wizIcBox"></div>
+      </div>
+      <div class="wiz-sub" style="font-size:13px;">Prefer Google Calendar? That setup has a few
+      more steps — find it later under <strong>Settings → Two-way sync</strong>.
+      This is completely skippable: the board works great read-only.</div>`,
+    onShow: () => wizRenderIcloud(),
+    next: 'Continue' },
+
+  { kicker: 'STEP 4 · WEATHER', title: 'Weather on the board?',
+    body: () => `
+      <div class="wiz-sub">Shows current conditions, daily highs on the week view, and a
+      forecast on each event. Free, no account needed.</div>
+      <div class="card">
+        <div class="row2">
+          <input type="text" id="wizWxQ" placeholder="City or ZIP code" autocomplete="off"
+                 onkeydown="if(event.key==='Enter')wizWxSearch()">
+          <button class="ghost" style="flex:none;" onclick="wizWxSearch()">Search</button>
+        </div>
+        <div id="wizWxResults"></div>
+        <div id="wizWxMsg" class="msgline"></div>
+      </div>`,
+    next: 'Continue' },
+
+  { kicker: 'STEP 5 · THE SCREEN', title: 'Make it an always-on display',
+    body: () => `
+      <div class="wiz-sub">With this on, the calendar takes over whenever the Portal idles —
+      a true wall calendar. Tap ✕ on the board any time to get back to the launcher.</div>
+      <div class="card">
+        <label style="display:flex;align-items:center;gap:10px;font-size:15px;">
+          <input type="checkbox" id="wizSaver" style="width:22px;height:22px;flex:none;" checked>
+          Show the calendar whenever the Portal is idle
+        </label>
+      </div>
+      <div class="card">
+        <strong>Display size <span id="wizScaleVal" style="color:#f0584c;"></span></strong>
+        <div class="wiz-sub" style="margin:4px 0 0;font-size:13px;">Watch the Portal while you
+        drag — it zooms live. 100% suits the Portal+; 10″ Portals like 110–125%.</div>
+        <input type="range" id="wizScale" min="70" max="160" step="5"
+               style="width:100%;margin-top:10px;accent-color:#f0584c;">
+      </div>`,
+    onShow: async () => {
+      try {
+        const sc = await (await fetch('/api/scale')).json();
+        const slider = document.getElementById('wizScale');
+        slider.value = Math.round(sc.scale * 100);
+        document.getElementById('wizScaleVal').textContent = slider.value + '%';
+        slider.addEventListener('input', () => {
+          document.getElementById('wizScaleVal').textContent = slider.value + '%';
+          pumpScalePreview(slider.value);
+        });
+        slider.addEventListener('change', () =>
+          fetch('/api/scale', {method:'POST', body: JSON.stringify({scale: slider.value/100})}));
+        const sv = await (await fetch('/api/screensaver')).json();
+        document.getElementById('wizSaver').checked = sv.enabled;
+      } catch(e){}
+    },
+    onNext: async () => {
+      try {
+        await fetch('/api/screensaver', {method:'POST',
+          body: JSON.stringify({enabled: document.getElementById('wizSaver').checked})});
+      } catch(e){}
+      return true;
+    } },
+
+  { kicker: 'ALL SET', title: 'Your family hub is ready 🎉',
+    body: () => `
+      <div class="wiz-emoji">✨</div>
+      <div class="card">
+        <strong>Three things worth knowing</strong>
+        <ol style="margin:8px 0 2px;">
+          <li><strong>Magic words:</strong> a calendar event titled
+          <code>groceries: oat milk</code> or <code>chore: water the plants</code>
+          goes to the right place instead of the calendar.</li>
+          <li><strong>Chores &amp; stars, lists and meals</strong> each have a tab on the
+          board and here — switch any of them off under Settings.</li>
+          <li><strong>Add this page to your home screen</strong> (Share → Add to Home
+          Screen) and it opens like an app.</li>
+        </ol>
+      </div>`,
+    next: 'Finish' },
+];
+
+function wizRenderDots(){
+  document.getElementById('wizDots').innerHTML = WIZ_STEPS.map((_, i) =>
+    `<div class="wiz-dot${i === wizStep ? ' on' : ''}"></div>`).join('');
+}
+
+function renderWiz(){
+  const s = WIZ_STEPS[wizStep];
+  wizRenderDots();
+  document.getElementById('wizBody').innerHTML =
+    `<div class="wiz-kicker">${s.kicker}</div><div class="wiz-title">${s.title}</div>` + s.body();
+  const nav = document.getElementById('wizNav');
+  nav.innerHTML =
+    (wizStep > 0 ? `<button class="ghost" style="flex:0 0 110px;" onclick="wizGo(-1)">Back</button>` : '') +
+    `<button onclick="wizGo(1)">${s.next || 'Continue'}</button>`;
+  if (s.onShow) s.onShow();
+}
+
+async function wizGo(dir){
+  if (dir > 0) {
+    const s = WIZ_STEPS[wizStep];
+    if (s.onNext) { try { await s.onNext(); } catch(e){} }
+    if (wizStep === WIZ_STEPS.length - 1) return exitWizard();
+  }
+  wizStep = Math.max(0, wizStep + dir);
+  renderWiz();
+  document.getElementById('wizard').scrollTop = 0;
+}
+
+function showWizard(){
+  wizStep = 0;
+  document.getElementById('wizard').style.display = 'flex';
+  renderWiz();
+}
+
+async function exitWizard(){
+  try { await fetch('/api/setup', {method:'POST', body:'{}'}); } catch(e){}
+  document.getElementById('wizard').style.display = 'none';
+  load(); loadSaver(); loadWriters(); loadScale(); loadWx(); loadPin();
+}
+
+async function maybeStartWizard(){
+  try {
+    if ((await (await fetch('/api/setup')).json()).fresh) showWizard();
+  } catch(e){}
+}
+
+// --- wizard step helpers ---
+function wizRenderMembers(){
+  document.getElementById('wizMembersBox').innerHTML = wizMembers.map((m,i) => `
+    <div class="cal-row">
+      <input type="color" value="${esc(m.color)}" onchange="wizMembers[${i}].color=this.value">
+      <input type="text" value="${esc(m.name)}" placeholder="Name" autocomplete="off"
+             style="margin:0;flex:1;" oninput="wizMembers[${i}].name=this.value">
+      <button class="del" onclick="wizMembers.splice(${i},1);wizRenderMembers()">✕</button>
+    </div>`).join('');
+}
+function wizAddMemberRow(){
+  wizMembers.push({name:'', color: WIZ_PALETTE[wizMembers.length % WIZ_PALETTE.length]});
+  wizRenderMembers();
+}
+
+async function wizRefreshCals(){
+  try {
+    const feeds = await (await fetch('/api/config')).json();
+    document.getElementById('wizCalList').innerHTML = feeds.map(f => `
+      <div class="cal-row">
+        <div class="dot" style="background:${esc(f.color)}"></div>
+        <div class="grow cal-name">${esc(f.name)}</div>
+        <span style="color:#2e9e4f;font-size:13px;">✓ added</span>
+      </div>`).join('');
+  } catch(e){}
+}
+async function wizAddCal(){
+  const name = document.getElementById('wizCalName').value.trim();
+  const url = normalizeUrl(document.getElementById('wizCalUrl').value);
+  const color = document.getElementById('wizCalColor').value;
+  if (!name) return show('wizCalMsg', 'Whose calendar is it?', false);
+  if (!/^https?:\/\//.test(url)) return show('wizCalMsg', 'Paste the full link (https:// or webcal://)', false);
+  show('wizCalMsg', 'Checking the link…', true);
+  try {
+    const v = await fetch('/api/validate', {method:'POST', body: JSON.stringify({url})});
+    const vb = await v.json();
+    if (!v.ok) throw new Error(vb.error || 'check failed');
+    const feeds = await (await fetch('/api/config')).json();
+    feeds.push({name, color, url, kind:'calendar'});
+    const r = await fetch('/api/config', {method:'POST', body: JSON.stringify(feeds)});
+    if (!r.ok) throw new Error((await r.json()).error || 'save failed');
+    document.getElementById('wizCalName').value = '';
+    document.getElementById('wizCalUrl').value = '';
+    show('wizCalMsg', `✓ Added — found ${vb.events} events`, true);
+    wizRefreshCals();
+  } catch(e){ show('wizCalMsg', e.message, false); }
+}
+
+async function wizRenderIcloud(){
+  let connected = false, email = '';
+  try {
+    const w = await (await fetch('/api/writers')).json();
+    connected = w.icloud.connected; email = w.icloud.email;
+  } catch(e){}
+  document.getElementById('wizIcBox').innerHTML = connected
+    ? `<div style="font-size:14px;margin-top:8px;">✓ Connected as <strong>${esc(email)}</strong></div>`
+    : `
+      <input type="text" id="wizIcEmail" placeholder="Apple ID (name@icloud.com)" autocomplete="off">
+      <input type="text" id="wizIcPass" placeholder="App-specific password (xxxx-xxxx-xxxx-xxxx)" autocomplete="off">
+      <div style="font-size:13px;color:#737983;margin-bottom:10px;">Create one at
+        <a href="https://account.apple.com" target="_blank" rel="noopener">account.apple.com</a>
+        → Sign-In and Security → App-Specific Passwords. Stored on the Portal only.</div>
+      <button class="ghost" style="width:100%;" onclick="wizConnectIcloud()">Connect iCloud</button>
+      <div id="wizIcMsg" class="msgline"></div>`;
+}
+async function wizConnectIcloud(){
+  const email = document.getElementById('wizIcEmail').value.trim();
+  const password = document.getElementById('wizIcPass').value.trim();
+  if (!email || !password) return show('wizIcMsg', 'Enter both fields (or just continue)', false);
+  show('wizIcMsg', 'Connecting…', true);
+  try {
+    const r = await fetch('/api/icloud/connect', {method:'POST', body: JSON.stringify({email, password})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    wizRenderIcloud();
+  } catch(e){ show('wizIcMsg', e.message, false); }
+}
+
+async function wizWxSearch(){
+  const q = document.getElementById('wizWxQ').value.trim();
+  if (!q) return;
+  show('wizWxMsg', 'Searching…', true);
+  try {
+    const r = await fetch('/api/weather/search', {method:'POST', body: JSON.stringify({q})});
+    const results = await r.json();
+    if (!r.ok) throw new Error(results.error || 'search failed');
+    document.getElementById('wizWxResults').innerHTML = results.map(x =>
+      `<button class="ghost" style="width:100%;margin-bottom:6px;text-align:left;"
+        onclick='wizWxSet(${x.lat},${x.lon},${JSON.stringify(x.label)})'>📍 ${esc(x.label)}</button>`).join('')
+      || '<div class="empty">No matches</div>';
+    show('wizWxMsg', '', true);
+  } catch(e){ show('wizWxMsg', e.message, false); }
+}
+async function wizWxSet(lat, lon, label){
+  try {
+    await fetch('/api/weather/set', {method:'POST', body: JSON.stringify({lat, lon, label, unit:'f'})});
+    document.getElementById('wizWxResults').innerHTML = '';
+    show('wizWxMsg', '✓ Weather is on for ' + label, true);
+  } catch(e){ show('wizWxMsg', e.message, false); }
+}
+
 document.querySelectorAll('.selfurl').forEach(e => e.textContent = location.host);
+maybeStartWizard();
 showTab('calendar');
 load();
 loadSaver();
