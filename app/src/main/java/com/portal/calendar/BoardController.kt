@@ -74,6 +74,8 @@ class BoardController(private val baseCtx: Context) {
 
     private lateinit var clockText: TextView
     private lateinit var dateText: TextView
+    private lateinit var weatherText: TextView
+    private lateinit var dayWxViews: List<TextView>
     private lateinit var statusText: TextView
     private lateinit var todayList: LinearLayout
     private lateinit var legendList: LinearLayout
@@ -174,11 +176,19 @@ class BoardController(private val baseCtx: Context) {
     }
 
     private val dataListener: () -> Unit = {
+        renderWeather()
         renderToday() // sidebar chores widget lives there
         when (currentTab) {
+            0 -> renderCalendar() // weather in week headers
             1 -> choresTab.render()
             2 -> listsTab.render()
         }
+    }
+
+    private fun renderWeather() {
+        val line = Weather.summaryLine(ctx)
+        weatherText.visibility = if (line != null) View.VISIBLE else View.GONE
+        line?.let { weatherText.text = it }
     }
 
     fun start() {
@@ -220,6 +230,7 @@ class BoardController(private val baseCtx: Context) {
     // ---------------------------------------------------------------- sync
 
     private fun doSync() {
+        Thread { Weather.maybeRefresh(ctx) }.start()
         if (store.feeds().isEmpty()) {
             events = emptyList()
             statusLine = "No calendars configured yet"
@@ -293,6 +304,12 @@ class BoardController(private val baseCtx: Context) {
         }
         side.addView(clockText)
         side.addView(dateText)
+        weatherText = TextView(ctx).apply {
+            textSize = 15f
+            setTextColor(INK)
+            visibility = View.GONE
+        }
+        side.addView(weatherText, lpMatchWrap(top = dp(8)))
 
         side.addView(View(ctx).apply { setBackgroundColor(LINE) },
             LinearLayout.LayoutParams(MATCH, dp(1)).apply {
@@ -426,6 +443,7 @@ class BoardController(private val baseCtx: Context) {
         val columnsRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         val names = ArrayList<TextView>()
         val nums = ArrayList<TextView>()
+        val wxList = ArrayList<TextView>()
         val columnWraps = ArrayList<LinearLayout>()
         val columns = ArrayList<LinearLayout>()
         for (i in 0..6) {
@@ -440,16 +458,23 @@ class BoardController(private val baseCtx: Context) {
                 gravity = Gravity.CENTER
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             }
+            val wx = TextView(ctx).apply {
+                textSize = 11f
+                gravity = Gravity.CENTER
+                setTextColor(MUTED)
+            }
             val headerCell = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
-                setPadding(0, dp(2), 0, dp(8))
+                setPadding(0, dp(2), 0, dp(6))
                 addView(name, LinearLayout.LayoutParams(WRAP, WRAP))
                 addView(num, LinearLayout.LayoutParams(dp(34), dp(34)).apply { topMargin = dp(3) })
+                addView(wx, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = dp(2) })
             }
             headerRow.addView(headerCell, LinearLayout.LayoutParams(0, WRAP, 1f))
             names.add(name)
             nums.add(num)
+            wxList.add(wx)
 
             val chips = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
@@ -472,6 +497,7 @@ class BoardController(private val baseCtx: Context) {
         }
         dayNameViews = names
         dayNumViews = nums
+        dayWxViews = wxList
         dayColumnWraps = columnWraps
         dayColumns = columns
         weekContainer = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
@@ -1027,6 +1053,10 @@ class BoardController(private val baseCtx: Context) {
                         timeFormat().format(ev.start) +
                         (if (ev.end > ev.start) " – " + timeFormat().format(ev.end) else ""))
             ev.location?.let { append("\n📍 ").append(it) }
+            if (!ev.allDay) Weather.hourly(ctx, ev.start)?.let { (temp, code) ->
+                append("\n").append(Weather.emoji(code)).append(" ")
+                    .append(temp).append(Weather.unitSuffix(ctx)).append(" forecast")
+            }
             append("\n").append(ev.feedName)
         }
         detailOverlay.visibility = View.VISIBLE
@@ -1326,6 +1356,7 @@ class BoardController(private val baseCtx: Context) {
 
     private fun renderAll() {
         updateClock()
+        renderWeather()
         renderToday()
         renderCalendar()
         renderLegend()
@@ -1381,6 +1412,8 @@ class BoardController(private val baseCtx: Context) {
 
             dayNameViews[i].text = nameFmt.format(dayCal.time).uppercase(Locale.getDefault())
             dayNameViews[i].setTextColor(if (isToday) ACCENT else FAINT)
+            val wx = Weather.daily(ctx, SimpleDateFormat("yyyy-MM-dd", Locale.US).format(dayCal.time))
+            dayWxViews[i].text = if (wx != null) "${Weather.emoji(wx.third)} ${wx.first}°" else ""
             dayNumViews[i].text = dayCal.get(Calendar.DAY_OF_MONTH).toString()
             if (isToday) {
                 dayNumViews[i].setTextColor(Color.WHITE)

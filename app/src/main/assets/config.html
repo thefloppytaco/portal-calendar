@@ -193,6 +193,23 @@
   </div>
 
   <div class="card" data-tab="settings">
+    <strong>Weather</strong>
+    <div id="wxStatus" style="font-size:14px;color:#4d535e;margin:8px 0;"></div>
+    <div class="row2">
+      <input type="text" id="wxQ" placeholder="City or ZIP code" autocomplete="off" style="margin:0;"
+             onkeydown="if(event.key==='Enter')wxSearch()">
+      <button class="ghost" style="flex:none;" onclick="wxSearch()">Search</button>
+    </div>
+    <div id="wxResults"></div>
+    <div class="row2" style="align-items:center;">
+      <span style="font-size:14px;color:#737983;">Units:</span>
+      <button id="wxF" class="ghost" style="flex:1;" onclick="wxUnit('f')">°F</button>
+      <button id="wxC" class="ghost" style="flex:1;" onclick="wxUnit('c')">°C</button>
+    </div>
+    <div id="wxMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
     <strong>Display size <span id="scaleVal" style="color:#f0584c;"></span></strong>
     <input type="range" id="scaleSlider" min="70" max="160" step="5"
            style="width:100%;margin-top:12px;accent-color:#f0584c;">
@@ -713,6 +730,61 @@ function addChore(){
   show('choreMsg', '✓ Added', true);
 }
 
+// ----- weather -----
+let wxState = {unit:'f'};
+
+function applyWx(st){
+  wxState = st;
+  document.getElementById('wxStatus').innerHTML = st.configured
+    ? `Showing weather for <strong>${esc(st.label)}</strong>${st.summary ? ' — ' + esc(st.summary) : ''} <button class="del" style="font-size:14px;" onclick="wxClear()">remove</button>`
+    : 'No location set — search below to show forecasts on the board.';
+  document.getElementById('wxF').className = st.unit === 'f' ? '' : 'ghost';
+  document.getElementById('wxC').className = st.unit === 'c' ? '' : 'ghost';
+}
+
+async function loadWx(){
+  try { applyWx(await (await fetch('/api/weather')).json()); } catch(e){}
+}
+
+async function wxSearch(){
+  const q = document.getElementById('wxQ').value.trim();
+  if (!q) return;
+  show('wxMsg', 'Searching…', true);
+  try {
+    const r = await fetch('/api/weather/search', {method:'POST', body: JSON.stringify({q})});
+    const results = await r.json();
+    if (!r.ok) throw new Error(results.error || 'search failed');
+    document.getElementById('wxResults').innerHTML = results.length
+      ? results.map(x => `<button class="ghost" style="width:100%;margin-bottom:6px;text-align:left;"
+          onclick='wxSet(${x.lat},${x.lon},${JSON.stringify(x.label)})'>📍 ${esc(x.label)}</button>`).join('')
+      : '<div class="empty">No matches</div>';
+    show('wxMsg', '', true);
+  } catch(e){ show('wxMsg', e.message, false); }
+}
+
+async function wxSet(lat, lon, label){
+  try {
+    const r = await fetch('/api/weather/set', {method:'POST',
+      body: JSON.stringify({lat, lon, label, unit: wxState.unit || 'f'})});
+    applyWx(await r.json());
+    document.getElementById('wxResults').innerHTML = '';
+    document.getElementById('wxQ').value = '';
+    show('wxMsg', '✓ Weather is on', true);
+  } catch(e){ show('wxMsg', e.message, false); }
+}
+
+async function wxUnit(u){
+  try {
+    const r = await fetch('/api/weather/set', {method:'POST', body: JSON.stringify({unit: u})});
+    applyWx(await r.json());
+  } catch(e){ show('wxMsg', e.message, false); }
+}
+
+async function wxClear(){
+  try { applyWx(await (await fetch('/api/weather/clear', {method:'POST'})).json()); }
+  catch(e){ show('wxMsg', e.message, false); }
+}
+
 // ----- family members -----
 let members = [];
 
@@ -753,6 +825,7 @@ load();
 loadSaver();
 loadWriters();
 loadScale();
+loadWx();
 </script>
 </body>
 </html>

@@ -69,6 +69,25 @@ class ConfigServer(
             json(Chores.statusJson(ctx))
         s.uri == "/api/chores" && s.method == Method.POST ->
             json(Chores.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/weather" && s.method == Method.GET ->
+            json(Weather.statusJson(ctx))
+        s.uri == "/api/weather/search" && s.method == Method.POST ->
+            json(Weather.search(org.json.JSONObject(readBody(s)).getString("q")).toString())
+        s.uri == "/api/weather/set" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            Weather.set(ctx,
+                if (o.has("lat")) o.getDouble("lat") else null,
+                if (o.has("lon")) o.getDouble("lon") else null,
+                if (o.has("label")) o.getString("label") else null,
+                if (o.has("unit")) o.getString("unit") else null)
+            Weather.maybeRefresh(ctx, force = true) // worker thread; fine
+            json(Weather.statusJson(ctx))
+        }
+        s.uri == "/api/weather/clear" && s.method == Method.POST -> {
+            Weather.clear(ctx)
+            App.instance.notifyDataChanged()
+            json(Weather.statusJson(ctx))
+        }
         s.uri == "/api/writers" && s.method == Method.GET ->
             json(Writers.statusJson(ctx))
         s.uri == "/api/target" && s.method == Method.POST -> {
