@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Warm coral gradient tile -->
+    <path android:pathData="M26,2 h56 a24,24 0 0 1 24,24 v56 a24,24 0 0 1 -24,24 h-56 a24,24 0 0 1 -24,-24 v-56 a24,24 0 0 1 24,-24 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="20" android:startY="8"
+                android:endX="88" android:endY="100"
+                android:startColor="#FF9F76"
+                android:endColor="#F0584C" />
+        </aapt:attr>
+    </path>
+
+    <!-- Binder rings -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,16 a4,4 0 0 1 4,4 v16 a4,4 0 0 1 -8,0 v-16 a4,4 0 0 1 4,-4 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M78,16 a4,4 0 0 1 4,4 v16 a4,4 0 0 1 -8,0 v-16 a4,4 0 0 1 4,-4 z" />
+
+    <!-- White calendar card -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28,30 h52 a10,10 0 0 1 10,10 v42 a10,10 0 0 1 -10,10 h-52 a10,10 0 0 1 -10,-10 v-42 a10,10 0 0 1 10,-10 z" />
+
+    <!-- Colorful event bars -->
+    <path
+        android:fillColor="#2BB3A3"
+        android:pathData="M27,46 h34 a4.5,4.5 0 0 1 0,9 h-34 a4.5,4.5 0 0 1 0,-9 z" />
+    <path
+        android:fillColor="#F2A93B"
+        android:pathData="M27,61 h46 a4.5,4.5 0 0 1 0,9 h-46 a4.5,4.5 0 0 1 0,-9 z" />
+    <path
+        android:fillColor="#4FA3E3"
+        android:pathData="M27,76 h26 a4.5,4.5 0 0 1 0,9 h-26 a4.5,4.5 0 0 1 0,-9 z" />
+    <path
+        android:fillColor="#F0584C"
+        android:pathData="M76,76 a4.5,4.5 0 1 1 -0.01,0 z" />
+</vector>

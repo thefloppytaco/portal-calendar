@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Family Calendar — Setup</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23F0584C'/%3E%3Crect x='16' y='28' width='68' height='56' rx='10' fill='white'/%3E%3Crect x='24' y='42' width='32' height='9' rx='4.5' fill='%232BB3A3'/%3E%3Crect x='24' y='56' width='44' height='9' rx='4.5' fill='%23F2A93B'/%3E%3Crect x='24' y='70' width='24' height='9' rx='4.5' fill='%234FA3E3'/%3E%3C/svg%3E">
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 16px 48px;
+    background: #f4f1ea; color: #333a45;
+    font: 16px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 23px; margin: 0 0 4px; color: #333a45; }
+  .sub { color: #737983; font-size: 14px; margin-bottom: 20px; }
+  .card {
+    background: #ffffff; border: 1px solid #e8e4da; border-radius: 16px;
+    padding: 16px; margin-bottom: 16px;
+    box-shadow: 0 2px 6px rgba(60,50,40,.06);
+  }
+  .cal-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid #efece4;
+  }
+  .cal-row:last-child { border-bottom: none; }
+  .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; }
+  .cal-name { font-weight: 600; }
+  .cal-url { color: #9aa0a8; font-size: 12px; word-break: break-all;
+             overflow: hidden; display: -webkit-box;
+             -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+  .grow { flex: 1; min-width: 0; }
+  button {
+    font: inherit; border: none; border-radius: 12px; cursor: pointer;
+    padding: 12px 16px; background: #f0584c; color: #fff; font-weight: 600;
+  }
+  button.ghost { background: #eae6dc; color: #333a45; }
+  button.del { background: none; color: #f0584c; font-size: 22px; padding: 4px 8px; flex: none; }
+  input[type=text], input[type=url], input[type=date], input[type=time], select {
+    width: 100%; font: inherit; color: #333a45;
+    background: #fbfaf6; border: 1px solid #ddd8cc; border-radius: 12px;
+    padding: 12px; margin: 6px 0 12px;
+  }
+  input[type=color] {
+    width: 52px; height: 40px; border: none; background: none; padding: 0;
+    vertical-align: middle;
+  }
+  label { font-size: 13px; color: #737983; }
+  .row2 { display: flex; align-items: center; gap: 12px; margin: 6px 0 12px; }
+  .btnrow { display: flex; gap: 10px; margin-top: 4px; }
+  .btnrow button { flex: 1; }
+  .msgline { min-height: 22px; font-size: 14px; margin-top: 10px; }
+  .msgline.ok { color: #2e9e4f; } .msgline.err { color: #d63b2f; }
+  details { margin-top: 4px; }
+  summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+  ol { padding-left: 20px; color: #4d535e; font-size: 14px; }
+  ol li { margin-bottom: 8px; }
+  .empty { color: #737983; text-align: center; padding: 12px 0; }
+  code { background: #efece4; border-radius: 5px; padding: 1px 6px; font-size: 13px; }
+  a { color: #f0584c; }
+</style>
+</head>
+<body>
+  <h1>Family Calendar</h1>
+  <div class="sub">Calendars shown on the Portal</div>
+
+  <div class="card">
+    <strong>Add an event</strong>
+    <div id="eventOff" style="color:#737983;font-size:14px;margin-top:8px;">
+      Connect iCloud (below) to add events from this page — they sync back to the family calendar on everyone's devices.
+    </div>
+    <div id="eventForm" style="display:none;">
+      <label for="evTitle">What</label>
+      <input type="text" id="evTitle" placeholder="e.g. Soccer practice" autocomplete="off">
+      <div class="row2">
+        <div style="flex:1;">
+          <label for="evDate">Date</label>
+          <input type="date" id="evDate">
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#333a45;margin-top:14px;white-space:nowrap;">
+          <input type="checkbox" id="evAllDay" onchange="toggleAllDay()" style="width:20px;height:20px;flex:none;"> All day
+        </label>
+      </div>
+      <div class="row2" id="evTimeRow">
+        <div style="flex:1;">
+          <label for="evTime">Starts</label>
+          <input type="time" id="evTime" value="15:00">
+        </div>
+        <div style="flex:1;">
+          <label for="evDur">Length</label>
+          <select id="evDur">
+            <option value="30">30 min</option>
+            <option value="60" selected>1 hour</option>
+            <option value="90">1½ hours</option>
+            <option value="120">2 hours</option>
+            <option value="180">3 hours</option>
+          </select>
+        </div>
+      </div>
+      <label for="evCal">Calendar</label>
+      <select id="evCal" onchange="pickTarget()"></select>
+      <button style="width:100%;" onclick="addEvent()">Add to calendar</button>
+      <div id="evMsg" class="msgline"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="list"></div>
+  </div>
+
+  <div class="card">
+    <strong>Add a calendar</strong>
+    <label for="name">Person / calendar name</label>
+    <input type="text" id="name" placeholder="e.g. Moshe" autocomplete="off">
+    <label for="url">Calendar link (Google secret address or Apple public link — how-to below)</label>
+    <input type="url" id="url" placeholder="https://… or webcal://…" autocomplete="off">
+    <div class="row2">
+      <label for="color">Color</label>
+      <input type="color" id="color" value="#2d81ff">
+    </div>
+    <div class="btnrow">
+      <button onclick="addCal()">Add calendar</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <strong>Idle screen</strong>
+    <label class="switchrow" style="display:flex;align-items:center;gap:10px;margin-top:10px;font-size:15px;color:#333a45;">
+      <input type="checkbox" id="ssToggle" onchange="toggleSaver()" style="width:22px;height:22px;flex:none;">
+      Show the calendar when the Portal idles (instead of the photo screensaver)
+    </label>
+    <div id="ssNote" style="color:#8b949e;font-size:13px;margin-top:8px;"></div>
+  </div>
+
+  <div class="card">
+    <strong>Two-way sync</strong>
+    <p style="font-size:13px;color:#737983;margin:6px 0 10px;">Connect an account so events can be added from this page. Events are created in the real calendar, so they sync to everyone's devices.</p>
+
+    <div style="font-weight:600;">iCloud</div>
+    <div id="icDisconnected" style="display:none;">
+      <label for="icEmail">Apple ID</label>
+      <input type="text" id="icEmail" placeholder="name@icloud.com" autocomplete="off">
+      <label for="icPass">App-specific password</label>
+      <input type="text" id="icPass" placeholder="xxxx-xxxx-xxxx-xxxx" autocomplete="off">
+      <div style="font-size:13px;color:#737983;margin-bottom:10px;">Create one at <a href="https://account.apple.com" target="_blank" rel="noopener">account.apple.com</a> → Sign-In and Security → App-Specific Passwords. It's stored on the Portal only and can be revoked anytime.</div>
+      <button class="ghost" style="width:100%;" onclick="connectIcloud()">Connect iCloud</button>
+    </div>
+    <div id="icConnected" style="display:none;font-size:14px;margin:8px 0;">
+      Connected as <strong id="icWho"></strong>
+      <button class="ghost" style="padding:6px 12px;margin-left:8px;" onclick="disconnectIcloud()">Disconnect</button>
+    </div>
+    <div id="icMsg" class="msgline"></div>
+
+    <div style="font-weight:600;margin-top:12px;border-top:1px solid #efece4;padding-top:14px;">Google Calendar</div>
+    <div id="gDisconnected" style="display:none;">
+      <details style="margin:6px 0 10px;">
+        <summary style="font-size:14px;">One-time Google Cloud setup (~5 min)</summary>
+        <ol>
+          <li>Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a> and create a project.</li>
+          <li>APIs &amp; Services → Library → enable the <strong>Google Calendar API</strong>.</li>
+          <li>OAuth consent screen → External → fill the required fields → <strong>Publish app</strong> (production — the "unverified app" warning at sign-in is expected for a personal project; in Testing mode the connection would expire weekly).</li>
+          <li>Credentials → Create credentials → OAuth client ID → type <strong>Desktop app</strong>. Copy the Client ID and Client secret below.</li>
+        </ol>
+      </details>
+      <label for="gId">Client ID</label>
+      <input type="text" id="gId" placeholder="….apps.googleusercontent.com" autocomplete="off">
+      <label for="gSecret">Client secret</label>
+      <input type="text" id="gSecret" autocomplete="off">
+      <button class="ghost" style="width:100%;" onclick="googleBegin()">Get sign-in link</button>
+      <div id="gStep2" style="display:none;">
+        <div style="font-size:14px;margin:12px 0 4px;">1. <a id="gAuthLink" href="#" target="_blank" rel="noopener"><strong>Sign in with Google</strong></a> as the calendar's owner and allow access.</div>
+        <div style="font-size:13px;color:#737983;margin-bottom:6px;">2. You'll land on a "site can't be reached" <code>localhost</code> page — copy that page's <em>full address</em> from the address bar and paste it here:</div>
+        <input type="text" id="gCode" placeholder="http://localhost:8090/oauth?code=…" autocomplete="off">
+        <button class="ghost" style="width:100%;" onclick="googleFinish()">Finish connecting</button>
+      </div>
+    </div>
+    <div id="gConnected" style="display:none;font-size:14px;margin:8px 0;">
+      Connected as <strong id="gWho"></strong>
+      <button class="ghost" style="padding:6px 12px;margin-left:8px;" onclick="disconnectGoogle()">Disconnect</button>
+    </div>
+    <div id="gMsg" class="msgline"></div>
+  </div>
+
+  <div class="btnrow">
+    <button class="ghost" onclick="syncNow()">Sync the Portal now</button>
+  </div>
+  <div id="msg" class="msgline"></div>
+
+  <div class="card">
+    <details>
+      <summary>Google Calendar — get the secret address</summary>
+      <p style="font-size:14px;color:#4d535e;margin:8px 0 6px;"><strong>Do it all on a computer</strong> — this page works there too, so the long link never has to touch your phone:</p>
+      <ol>
+        <li>On the computer, open this same page: go to <code class="selfurl"></code> in any browser.</li>
+        <li>In another tab, open <a href="https://calendar.google.com/calendar/r/settings" target="_blank" rel="noopener">calendar.google.com → Settings</a>, signed in as the family member.</li>
+        <li>Under “Settings for my calendars”, click their calendar → <strong>Integrate calendar</strong>.</li>
+        <li>Copy <strong>“Secret address in iCal format”</strong> (ends in <code>basic.ics</code>) and paste it in the form here.</li>
+      </ol>
+      <p style="font-size:13px;color:#737983;margin:6px 0 2px;">Phone-only alternative: open the settings link above in Safari (long-press → Open in Safari if the Google app grabs it), tap <strong>aA → Request Desktop Website</strong>, then follow steps 3–4.</p>
+    </details>
+    <details>
+      <summary>Apple / iCloud Calendar — get the link</summary>
+      <ol>
+        <li>On that person's <strong>iPhone</strong>, open the <strong>Calendar</strong> app.</li>
+        <li>Tap <strong>Calendars</strong> at the bottom, then <strong>ⓘ</strong> next to their calendar.</li>
+        <li>Turn on <strong>Public Calendar</strong>, tap <strong>Share Link…</strong> → <strong>Copy</strong>.</li>
+        <li>Come back here and paste it above (<code>webcal://…</code> links are fine).</li>
+      </ol>
+      <ol style="border-top:1px solid #21262d; padding-top:10px;">
+        <li>Only calendars the person owns in iCloud can be shared this way — the built-in Birthdays/Holidays calendars can't, and a Google account synced into the iPhone should use the Google steps instead.</li>
+      </ol>
+    </details>
+    <details>
+      <summary>Good to know</summary>
+      <ol>
+        <li>These links give read-only access to the calendar — treat them like passwords and only paste them here.</li>
+        <li>There's no way to fetch the link automatically: neither Google nor Apple exposes it to other apps — each person copies theirs once, then it syncs forever.</li>
+        <li>New events appear on the Portal within ~15 minutes (Google/Apple can also take a few minutes to publish changes). Use “Sync now” to pull immediately.</li>
+      </ol>
+    </details>
+  </div>
+
+<script>
+const PALETTE = ['#f0584c','#2bb3a3','#f2a93b','#4fa3e3','#8e7cc3','#e87ea1','#7cb342','#e2574c'];
+let feeds = [];
+
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function render(){
+  const list = document.getElementById('list');
+  if (!feeds.length) { list.innerHTML = '<div class="empty">No calendars yet — add one below</div>'; return; }
+  list.innerHTML = feeds.map((f,i)=>`
+    <div class="cal-row">
+      <div class="dot" style="background:${esc(f.color)}"></div>
+      <div class="grow">
+        <div class="cal-name">${esc(f.name)}</div>
+        <div class="cal-url">${esc(f.url)}</div>
+      </div>
+      <button class="del" onclick="removeCal(${i})" aria-label="Remove">✕</button>
+    </div>`).join('');
+}
+
+function show(id, text, ok){
+  const el = document.getElementById(id);
+  el.textContent = text; el.className = 'msgline ' + (ok ? 'ok' : 'err');
+  if (ok) setTimeout(()=>{ if(el.textContent===text) el.textContent=''; }, 6000);
+}
+function msg(text, ok){ show('msg', text, ok); }
+
+async function load(){
+  try {
+    feeds = await (await fetch('/api/config')).json();
+    document.getElementById('color').value = PALETTE[feeds.length % PALETTE.length];
+    render();
+  } catch(e){ msg('Could not reach the Portal: '+e.message, false); }
+}
+
+async function save(){
+  const r = await fetch('/api/config', {method:'POST', body: JSON.stringify(feeds)});
+  const body = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(body.error || 'save failed');
+}
+
+function normalizeUrl(raw){
+  let url = raw.trim().replace(/\s+/g, '');
+  if (url.startsWith('webcal://')) url = 'https://' + url.slice(9);
+  // Google "embed" share links → public iCal address
+  const em = url.match(/calendar\.google\.com\/calendar\/embed\?.*?src=([^&]+)/);
+  if (em) url = 'https://calendar.google.com/calendar/ical/' + em[1] + '/public/basic.ics';
+  return url;
+}
+
+async function addCal(){
+  const name = document.getElementById('name').value.trim();
+  const url = normalizeUrl(document.getElementById('url').value);
+  const color = document.getElementById('color').value;
+  if (!name) return msg('Enter a name', false);
+  if (!/^https?:\/\//.test(url)) return msg('Paste the full calendar link (https:// or webcal://)', false);
+  msg('Checking the link…', true);
+  try {
+    const r = await fetch('/api/validate', {method:'POST', body: JSON.stringify({url})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'check failed');
+    feeds.push({name, color, url});
+    await save();
+    document.getElementById('name').value = '';
+    document.getElementById('url').value = '';
+    document.getElementById('color').value = PALETTE[feeds.length % PALETTE.length];
+    render();
+    msg('✓ Added — found ' + body.events + ' events, the Portal is syncing', true);
+  } catch(e){ msg(e.message, false); }
+}
+
+async function removeCal(i){
+  const removed = feeds.splice(i,1)[0];
+  try { await save(); render(); msg('Removed '+removed.name, true); }
+  catch(e){ feeds.splice(i,0,removed); msg(e.message, false); }
+}
+
+async function syncNow(){
+  try { await fetch('/api/sync', {method:'POST'}); msg('Sync started', true); }
+  catch(e){ msg(e.message, false); }
+}
+
+function applySaverStatus(st){
+  const t = document.getElementById('ssToggle');
+  const note = document.getElementById('ssNote');
+  t.checked = st.enabled;
+  t.disabled = !st.canWrite;
+  if (!st.canWrite) {
+    note.innerHTML = 'Needs a one-time permission. With the Portal plugged into a computer, run:<br><code>' + st.grantCmd + '</code>';
+  } else {
+    note.textContent = st.enabled
+      ? 'On — the calendar takes over when the Portal idles. Tap ✕ on the board to leave.'
+      : 'Off — the Portal uses its normal photo screensaver.';
+  }
+}
+
+async function loadSaver(){
+  try { applySaverStatus(await (await fetch('/api/screensaver')).json()); }
+  catch(e){ /* page still usable without it */ }
+}
+
+async function toggleSaver(){
+  const t = document.getElementById('ssToggle');
+  try {
+    const r = await fetch('/api/screensaver', {method:'POST', body: JSON.stringify({enabled: t.checked})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    applySaverStatus(body);
+    msg(t.checked ? 'Calendar is now the idle screen' : 'Photo screensaver restored', true);
+  } catch(e){ t.checked = !t.checked; msg(e.message, false); }
+}
+
+let writers = {calendars:[]};
+
+function applyWriters(st){
+  writers = st;
+  document.getElementById('icDisconnected').style.display = st.icloud.connected ? 'none' : 'block';
+  document.getElementById('icConnected').style.display = st.icloud.connected ? 'block' : 'none';
+  if (st.icloud.connected) document.getElementById('icWho').textContent = st.icloud.email;
+  document.getElementById('gDisconnected').style.display = st.google.connected ? 'none' : 'block';
+  document.getElementById('gConnected').style.display = st.google.connected ? 'block' : 'none';
+  if (st.google.connected) document.getElementById('gWho').textContent = st.google.email || 'Google account';
+
+  const any = st.calendars.length > 0;
+  document.getElementById('eventOff').style.display = any ? 'none' : 'block';
+  document.getElementById('eventForm').style.display = any ? 'block' : 'none';
+  if (any) {
+    const sel = document.getElementById('evCal');
+    sel.innerHTML = st.calendars.map(c => {
+      const v = c.kind + '|' + c.id;
+      const cur = st.target && st.target.kind === c.kind && st.target.id === c.id;
+      return `<option value="${esc(v)}"${cur ? ' selected' : ''}>${esc(c.name)}</option>`;
+    }).join('');
+    const d = document.getElementById('evDate');
+    if (!d.value) {
+      const now = new Date();
+      d.value = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+    }
+  }
+}
+
+async function loadWriters(){
+  try { applyWriters(await (await fetch('/api/writers')).json()); } catch(e){}
+}
+
+async function connectIcloud(){
+  const email = document.getElementById('icEmail').value.trim();
+  const password = document.getElementById('icPass').value.trim();
+  if (!email || !password) return show('icMsg', 'Enter the Apple ID and an app-specific password', false);
+  show('icMsg', 'Connecting to iCloud…', true);
+  try {
+    const r = await fetch('/api/icloud/connect', {method:'POST', body: JSON.stringify({email, password})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'connection failed');
+    document.getElementById('icPass').value = '';
+    applyWriters(body);
+    show('icMsg', '✓ iCloud connected', true);
+  } catch(e){ show('icMsg', e.message, false); }
+}
+
+async function disconnectIcloud(){
+  try { await fetch('/api/icloud/disconnect', {method:'POST'}); } catch(e){}
+  loadWriters();
+}
+
+async function googleBegin(){
+  const clientId = document.getElementById('gId').value.trim();
+  const clientSecret = document.getElementById('gSecret').value.trim();
+  if (!clientId || !clientSecret) return show('gMsg', 'Enter the Client ID and Client secret', false);
+  try {
+    const r = await fetch('/api/google/begin', {method:'POST', body: JSON.stringify({clientId, clientSecret})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    document.getElementById('gAuthLink').href = body.authUrl;
+    document.getElementById('gStep2').style.display = 'block';
+    show('gMsg', 'Now follow steps 1 and 2', true);
+  } catch(e){ show('gMsg', e.message, false); }
+}
+
+async function googleFinish(){
+  const code = document.getElementById('gCode').value.trim();
+  if (!code) return show('gMsg', 'Paste the localhost address (or the code from it)', false);
+  show('gMsg', 'Connecting to Google…', true);
+  try {
+    const r = await fetch('/api/google/code', {method:'POST', body: JSON.stringify({code})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    applyWriters(body);
+    show('gMsg', '✓ Google Calendar connected', true);
+  } catch(e){ show('gMsg', e.message, false); }
+}
+
+async function disconnectGoogle(){
+  try { await fetch('/api/google/disconnect', {method:'POST'}); } catch(e){}
+  loadWriters();
+}
+
+async function pickTarget(){
+  const v = document.getElementById('evCal').value;
+  const i = v.indexOf('|');
+  try {
+    const r = await fetch('/api/target', {method:'POST',
+      body: JSON.stringify({kind: v.slice(0, i), id: v.slice(i + 1)})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    applyWriters(body);
+  } catch(e){ show('evMsg', e.message, false); }
+}
+
+function toggleAllDay(){
+  document.getElementById('evTimeRow').style.display =
+    document.getElementById('evAllDay').checked ? 'none' : 'flex';
+}
+
+async function addEvent(){
+  const title = document.getElementById('evTitle').value.trim();
+  const date = document.getElementById('evDate').value;
+  const allDay = document.getElementById('evAllDay').checked;
+  const time = document.getElementById('evTime').value || '12:00';
+  const durationMins = parseInt(document.getElementById('evDur').value, 10);
+  if (!title) return show('evMsg', 'Give the event a name', false);
+  if (!date) return show('evMsg', 'Pick a date', false);
+  show('evMsg', 'Adding to the calendar…', true);
+  try {
+    const r = await fetch('/api/event', {method:'POST',
+      body: JSON.stringify({title, date, time, durationMins, allDay})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    document.getElementById('evTitle').value = '';
+    show('evMsg', '✓ Added — on everyone\'s devices now; the Portal board picks it up within a few minutes', true);
+  } catch(e){ show('evMsg', e.message, false); }
+}
+
+document.querySelectorAll('.selfurl').forEach(e => e.textContent = location.host);
+load();
+loadSaver();
+loadWriters();
+</script>
+</body>
+</html>
