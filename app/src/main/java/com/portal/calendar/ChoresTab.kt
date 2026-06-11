@@ -22,7 +22,11 @@ import kotlin.math.roundToInt
  * big tappable cards, plus a weekly star tally with a progress bar toward each
  * member's goal. Tapping a card bounces it and toggles completion (a star).
  */
-class ChoresTab(private val ctx: Context) {
+class ChoresTab(
+    private val ctx: Context,
+    private val onAddChore: () -> Unit = {},
+    private val onRemoveChore: (id: String, label: String) -> Unit = { _, _ -> }
+) {
 
     private lateinit var columnsRow: LinearLayout
     val view: LinearLayout = build()
@@ -34,13 +38,28 @@ class ChoresTab(private val ctx: Context) {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(18), dp(22), dp(16))
         }
-        root.addView(TextView(ctx).apply {
+        val head = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(TextView(ctx).apply {
             text = "TODAY'S CHORES"
             textSize = 13f
             setTextColor(ACCENT)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             letterSpacing = 0.14f
-        }, lp(bottom = dp(12)))
+        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        head.addView(TextView(ctx).apply {
+            text = "+ Add"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            background = rounded(ACCENT, 18)
+            setPadding(dp(16), dp(7), dp(16), dp(7))
+            setOnClickListener { onAddChore() }
+        })
+        root.addView(head, lp(bottom = dp(12)))
         columnsRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         root.addView(columnsRow, LinearLayout.LayoutParams(MATCH, 0, 1f))
         return root
@@ -53,7 +72,10 @@ class ChoresTab(private val ctx: Context) {
         val stars = status.getJSONObject("stars")
         val goals = status.getJSONObject("goals")
         val members = status.getJSONArray("members")
-        val today = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        val todayCal = Calendar.getInstance()
+        val todayDow = todayCal.get(Calendar.DAY_OF_WEEK)
+        val todayDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(todayCal.time)
 
         columnsRow.removeAllViews()
 
@@ -72,7 +94,7 @@ class ChoresTab(private val ctx: Context) {
         for (i in 0 until members.length()) groups[members.getJSONObject(i).optString("id")] = ArrayList()
         for (i in 0 until chores.length()) {
             val c = chores.getJSONObject(i)
-            if (!Chores.isDue(c, today)) continue
+            if (!Chores.isDueOn(c, todayDate, todayDow)) continue
             val mid = c.optString("memberId").takeIf { it in memberIds } ?: ""
             groups.getOrPut(mid) { ArrayList() }.add(c)
         }
@@ -158,12 +180,22 @@ class ChoresTab(private val ctx: Context) {
                     maxLines = 2
                     ellipsize = TextUtils.TruncateAt.END
                 }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                if (c.optBoolean("oneTime")) card.addView(TextView(ctx).apply {
+                    text = "1×"
+                    textSize = 12f
+                    setTextColor(if (done) Color.WHITE else MUTED)
+                    setPadding(0, 0, dp(8), 0)
+                })
                 card.addView(TextView(ctx).apply {
                     text = if (done) "✓" else ""
                     textSize = 22f
                     setTextColor(Color.WHITE)
                     typeface = Typeface.DEFAULT_BOLD
                 })
+                card.setOnLongClickListener {
+                    onRemoveChore(c.optString("id"), "${c.optString("icon")} ${c.optString("title")} ($name)")
+                    true
+                }
                 card.setOnClickListener {
                     // Quick bounce, then toggle (re-render arrives via listener).
                     card.animate().scaleX(0.93f).scaleY(0.93f).setDuration(80).withEndAction {

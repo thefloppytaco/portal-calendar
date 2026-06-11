@@ -25,6 +25,17 @@ object Chores {
 
     fun statusJson(ctx: Context): String {
         val chores = Data.readArray(ctx, FILE)
+        // One-time chores quietly retire a few days after their date.
+        val cutoff = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -3) }
+        val cut = dayFmt().format(cutoff.time)
+        var pruned = false
+        for (i in chores.length() - 1 downTo 0) {
+            val c = chores.getJSONObject(i)
+            if (c.optBoolean("oneTime") && c.optString("date") < cut) {
+                chores.remove(i); pruned = true
+            }
+        }
+        if (pruned) Data.writeArray(ctx, FILE, chores)
         val done = Data.readArray(ctx, DONE)
         val today = dayFmt().format(Date())
 
@@ -71,12 +82,19 @@ object Chores {
                 val title = action.getString("title").trim()
                 if (title.isEmpty()) throw IllegalArgumentException("the chore needs a name")
                 val arr = Data.readArray(ctx, FILE)
-                arr.put(JSONObject()
+                val chore = JSONObject()
                     .put("id", UUID.randomUUID().toString())
                     .put("title", title)
                     .put("memberId", action.optString("memberId"))
                     .put("icon", action.optString("icon").ifEmpty { "⭐" })
-                    .put("days", action.optJSONArray("days") ?: JSONArray(listOf(1, 2, 3, 4, 5, 6, 7))))
+                if (action.optBoolean("oneTime", false)) {
+                    chore.put("oneTime", true)
+                    chore.put("date", action.optString("date").ifEmpty { dayFmt().format(Date()) })
+                } else {
+                    chore.put("days", action.optJSONArray("days")
+                        ?: JSONArray(listOf(1, 2, 3, 4, 5, 6, 7)))
+                }
+                arr.put(chore)
                 Data.writeArray(ctx, FILE, arr)
             }
             "deleteChore" -> {
@@ -124,8 +142,9 @@ object Chores {
         return statusJson(ctx)
     }
 
-    /** Chores due on the given Calendar.DAY_OF_WEEK. */
-    fun isDue(chore: JSONObject, dayOfWeek: Int): Boolean {
+    /** Due on a given yyyy-MM-dd date (+ its Calendar.DAY_OF_WEEK). */
+    fun isDueOn(chore: JSONObject, date: String, dayOfWeek: Int): Boolean {
+        if (chore.optBoolean("oneTime")) return chore.optString("date") == date
         val days = chore.optJSONArray("days") ?: return true
         for (i in 0 until days.length()) if (days.optInt(i) == dayOfWeek) return true
         return false

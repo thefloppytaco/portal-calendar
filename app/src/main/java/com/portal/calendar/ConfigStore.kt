@@ -47,6 +47,13 @@ class ConfigStore(ctx: Context) {
         prefs.edit().putString(KEY, clean.toString()).apply()
     }
 
+    /** Board tab visibility: "chores" / "lists" / "meals", all on by default. */
+    fun featureEnabled(key: String): Boolean = prefs.getBoolean("feature_$key", true)
+
+    fun setFeature(key: String, on: Boolean) {
+        prefs.edit().putBoolean("feature_$key", on).apply()
+    }
+
     /** Kid-lock PIN; empty = lock disabled. Gates edits on the board only. */
     fun pin(): String = prefs.getString("kid_pin", "") ?: ""
 

@@ -90,6 +90,7 @@
     <div id="choreBox" style="margin-top:8px;"></div>
     <div style="border-top:1px solid #efece4;margin-top:14px;padding-top:12px;">
       <strong style="font-size:14px;">Add a chore</strong>
+      <div id="choreBank" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
       <div class="row2" style="margin-top:8px;">
         <select id="chIcon" style="margin:0;flex:none;width:84px;">
           <option>⭐</option><option>🛏️</option><option>🦷</option><option>🧹</option>
@@ -100,8 +101,13 @@
       </div>
       <div class="row2">
         <select id="chMember" style="margin:0;"></select>
+        <select id="chMode" style="margin:0;" onchange="renderChoreSchedule()">
+          <option value="repeat">Repeats</option>
+          <option value="once">One time</option>
+        </select>
       </div>
       <div id="chDays" style="display:flex;gap:6px;margin:6px 0 12px;"></div>
+      <input type="date" id="chDate" style="display:none;">
       <button style="width:100%;" onclick="addChore()">Add chore</button>
     </div>
     <div id="choreMsg" class="msgline"></div>
@@ -212,6 +218,17 @@
       Show the calendar when the Portal idles (instead of the photo screensaver)
     </label>
     <div id="ssNote" style="color:#8b949e;font-size:13px;margin-top:8px;"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
+    <strong>Board tabs</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 10px;">Switch off what your family doesn't use — the tab disappears from the Portal.</div>
+    <div id="featRow" style="display:flex;flex-direction:column;gap:10px;">
+      <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featChores" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Chores &amp; stars</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featLists" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Lists</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featMeals" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Meals</label>
+    </div>
+    <div id="featMsg" class="msgline"></div>
   </div>
 
   <div class="card" data-tab="settings">
@@ -684,6 +701,33 @@ const DOW = [{n:'S',v:1},{n:'M',v:2},{n:'T',v:3},{n:'W',v:4},{n:'T',v:5},{n:'F',
 let choreDays = [2,3,4,5,6]; // default school days
 let choreStatus = null;
 
+const CHORE_BANK = [
+  ['🛏️','Make the bed'],['🦷','Brush teeth'],['📚','Homework'],['🐕','Feed the pet'],
+  ['🍽️','Set the table'],['🥣','Clear the dishes'],['🧺','Put laundry away'],
+  ['🧸','Tidy your room'],['🗑️','Take out the trash'],['🚿','Shower'],
+  ['🎵','Practice music'],['🪴','Water the plants']];
+
+function renderChoreBank(){
+  document.getElementById('choreBank').innerHTML = CHORE_BANK.map(([icon, title]) =>
+    `<button class="ghost" style="padding:8px 12px;font-size:13px;"
+             onclick="pickBank('${icon}', ${JSON.stringify(title)})">${icon} ${esc(title)}</button>`).join('');
+}
+function pickBank(icon, title){
+  document.getElementById('chIcon').value = icon;
+  document.getElementById('chTitle').value = title;
+}
+
+function renderChoreSchedule(){
+  const once = document.getElementById('chMode').value === 'once';
+  document.getElementById('chDays').style.display = once ? 'none' : 'flex';
+  const d = document.getElementById('chDate');
+  d.style.display = once ? '' : 'none';
+  if (once && !d.value) {
+    const now = new Date();
+    d.value = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  }
+}
+
 function renderDayChips(){
   document.getElementById('chDays').innerHTML = DOW.map(d =>
     `<button class="${choreDays.includes(d.v) ? '' : 'ghost'}" style="flex:1;padding:8px 0;"
@@ -723,7 +767,8 @@ function renderChores(){
   // Chore list
   const dayNames = ['','Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   document.getElementById('choreBox').innerHTML = (st.chores || []).map(c => {
-    const days = (c.days || []).length === 7 ? 'Every day'
+    const days = c.oneTime ? ('One time · ' + (c.date || ''))
+      : (c.days || []).length === 7 ? 'Every day'
       : (c.days || []).map(d => dayNames[d]).join(' ');
     return `<div class="cal-row">
       <span style="font-size:20px;">${esc(c.icon || '⭐')}</span>
@@ -741,7 +786,10 @@ function renderChores(){
 }
 
 async function loadChores(){
-  try { choreStatus = await (await fetch('/api/chores')).json(); renderChores(); renderDayChips(); }
+  try {
+    choreStatus = await (await fetch('/api/chores')).json();
+    renderChores(); renderDayChips(); renderChoreBank(); renderChoreSchedule();
+  }
   catch(e){ show('choreMsg', e.message, false); }
 }
 
@@ -757,11 +805,19 @@ async function choreAct(action){
 function addChore(){
   const title = document.getElementById('chTitle').value.trim();
   if (!title) return show('choreMsg', 'Give the chore a name', false);
-  if (!choreDays.length) return show('choreMsg', 'Pick at least one day', false);
-  choreAct({action:'addChore', title,
+  const once = document.getElementById('chMode').value === 'once';
+  const action = {action:'addChore', title,
     icon: document.getElementById('chIcon').value,
-    memberId: document.getElementById('chMember').value,
-    days: choreDays});
+    memberId: document.getElementById('chMember').value};
+  if (once) {
+    action.oneTime = true;
+    action.date = document.getElementById('chDate').value;
+    if (!action.date) return show('choreMsg', 'Pick a date', false);
+  } else {
+    if (!choreDays.length) return show('choreMsg', 'Pick at least one day', false);
+    action.days = choreDays;
+  }
+  choreAct(action);
   document.getElementById('chTitle').value = '';
   show('choreMsg', '✓ Added', true);
 }

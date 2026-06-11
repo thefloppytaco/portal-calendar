@@ -73,6 +73,21 @@ class ConfigServer(
             json(Meals.statusJson(ctx))
         s.uri == "/api/meals" && s.method == Method.POST ->
             json(Meals.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/features" && s.method == Method.GET ->
+            json(org.json.JSONObject()
+                .put("chores", store.featureEnabled("chores"))
+                .put("lists", store.featureEnabled("lists"))
+                .put("meals", store.featureEnabled("meals")).toString())
+        s.uri == "/api/features" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            for (key in listOf("chores", "lists", "meals"))
+                if (o.has(key)) store.setFeature(key, o.getBoolean(key))
+            App.instance.notifyDataChanged()
+            json(org.json.JSONObject()
+                .put("chores", store.featureEnabled("chores"))
+                .put("lists", store.featureEnabled("lists"))
+                .put("meals", store.featureEnabled("meals")).toString())
+        }
         s.uri == "/api/pin" && s.method == Method.GET ->
             json("{\"enabled\":${store.pin().isNotEmpty()}}")
         s.uri == "/api/pin" && s.method == Method.POST -> {

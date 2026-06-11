@@ -177,8 +177,9 @@ class BoardController(private val baseCtx: Context) {
     }
 
     private val dataListener: () -> Unit = {
+        applyFeatures()
         renderWeather()
-        renderToday() // sidebar chores widget lives there
+        renderToday()
         when (currentTab) {
             0 -> renderCalendar() // weather in week headers
             1 -> choresTab.render()
@@ -193,10 +194,25 @@ class BoardController(private val baseCtx: Context) {
         line?.let { weatherText.text = it }
     }
 
+    /** Hides the tab pills for features switched off on the page. */
+    private fun applyFeatures() {
+        val flags = listOf(true,
+            store.featureEnabled("chores"),
+            store.featureEnabled("lists"),
+            store.featureEnabled("meals"))
+        tabButtons.forEachIndexed { i, b ->
+            b.visibility = if (flags[i]) View.VISIBLE else View.GONE
+        }
+        (tabButtons[0].parent as View).visibility =
+            if (flags.drop(1).any { it }) View.VISIBLE else View.GONE
+        if (!flags[currentTab]) setTab(0)
+    }
+
     fun start() {
         App.instance.activeBoard = this
         App.instance.addConfigListener(configListener)
         App.instance.addDataListener(dataListener)
+        applyFeatures()
         exitButton.visibility = if (onExit != null) View.VISIBLE else View.GONE
         renderAll()
         handler.post(clockTick)
@@ -215,6 +231,13 @@ class BoardController(private val baseCtx: Context) {
         var closed = false
         if (pinOverlay.visibility == View.VISIBLE) {
             pinOverlay.visibility = View.GONE; closed = true
+        }
+        if (confirmOverlay.visibility == View.VISIBLE) {
+            confirmOverlay.visibility = View.GONE; closed = true
+        }
+        if (choreOverlay.visibility == View.VISIBLE) {
+            hideKeyboard()
+            choreOverlay.visibility = View.GONE; closed = true
         }
         if (detailOverlay.visibility == View.VISIBLE) {
             detailOverlay.visibility = View.GONE; closed = true
@@ -277,9 +300,323 @@ class BoardController(private val baseCtx: Context) {
         root.addView(addOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         detailOverlay = buildDetailOverlay()
         root.addView(detailOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        choreOverlay = buildChoreOverlay()
+        root.addView(choreOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        confirmOverlay = buildConfirmOverlay()
+        root.addView(confirmOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         pinOverlay = buildPinOverlay()
         root.addView(pinOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         return root
+    }
+
+    // ------------------------------------------------------ chore composer
+
+    private lateinit var choreOverlay: FrameLayout
+    private lateinit var choreTitleInput: EditText
+    private lateinit var choreMemberBtn: TextView
+    private lateinit var choreRepeatBtn: TextView
+    private lateinit var choreOnceBtn: TextView
+    private lateinit var choreDaysRow: LinearLayout
+    private lateinit var choreDateRow: LinearLayout
+    private lateinit var choreDateLabel: TextView
+    private lateinit var choreMsg: TextView
+    private var choreIcon = "⭐"
+    private var choreMemberIndex = 0
+    private var choreOneTime = false
+    private var choreDate: Calendar = Calendar.getInstance()
+    private val choreDays = sortedSetOf(1, 2, 3, 4, 5, 6, 7)
+    // lateinit, NOT `= emptyList()`: these fields are declared after the init
+    // block that builds the UI, so a default initializer would run AFTER
+    // buildChoreOverlay() and wipe the chip references it stored.
+    private lateinit var choreDayChips: List<TextView>
+
+    private fun showChoreOverlay() {
+        val members = Members.all(ctx)
+        if (members.isEmpty()) {
+            confirm("No family members yet", "Add them on the setup page (⚙ shows the address)", "OK") {}
+            return
+        }
+        choreTitleInput.setText("")
+        choreIcon = "⭐"
+        choreMemberIndex = 0
+        choreOneTime = false
+        choreDate = Calendar.getInstance()
+        choreDays.clear(); choreDays.addAll(1..7)
+        choreMsg.text = ""
+        refreshChoreOverlay()
+        choreOverlay.visibility = View.VISIBLE
+    }
+
+    private fun refreshChoreOverlay() {
+        val members = Members.all(ctx)
+        if (members.isNotEmpty()) {
+            val m = members[choreMemberIndex.coerceIn(members.indices)]
+            choreMemberBtn.text = m.name
+            choreMemberBtn.background = rounded(m.color, 18)
+            choreMemberBtn.setTextColor(Color.WHITE)
+        }
+        choreRepeatBtn.background = rounded(if (!choreOneTime) ACCENT else PILL, 18)
+        choreRepeatBtn.setTextColor(if (!choreOneTime) Color.WHITE else INK)
+        choreOnceBtn.background = rounded(if (choreOneTime) ACCENT else PILL, 18)
+        choreOnceBtn.setTextColor(if (choreOneTime) Color.WHITE else INK)
+        choreDaysRow.visibility = if (choreOneTime) View.GONE else View.VISIBLE
+        choreDateRow.visibility = if (choreOneTime) View.VISIBLE else View.GONE
+        choreDateLabel.text = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(choreDate.time)
+        choreDayChips.forEachIndexed { i, chip ->
+            val dow = chip.tag as Int
+            val on = choreDays.contains(dow)
+            chip.background = rounded(if (on) ACCENT else PILL, 16)
+            chip.setTextColor(if (on) Color.WHITE else INK)
+        }
+    }
+
+    private fun buildChoreOverlay(): FrameLayout {
+        val scrim = FrameLayout(ctx).apply {
+            setBackgroundColor(SCRIM)
+            visibility = View.GONE
+            setOnClickListener { hideKeyboard(); visibility = View.GONE }
+        }
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(CARD, 20)
+            elevation = dp(10).toFloat()
+            setPadding(dp(28), dp(20), dp(28), dp(16))
+            isClickable = true
+        }
+        card.addView(TextView(ctx).apply {
+            text = "New chore"
+            textSize = 20f
+            setTextColor(INK)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }, lpMatchWrap(bottom = dp(10)))
+
+        // Quick-pick bank --------------------------------------------------
+        val bankRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((icon, title) in CHORE_BANK) {
+            bankRow.addView(TextView(ctx).apply {
+                text = "$icon $title"
+                textSize = 13f
+                setTextColor(INK)
+                background = rounded(PILL, 16)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                setOnClickListener {
+                    choreIcon = icon
+                    choreTitleInput.setText(title)
+                    refreshChoreOverlay()
+                }
+            }, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(6) })
+        }
+        card.addView(android.widget.HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(bankRow)
+        }, LinearLayout.LayoutParams(dp(520), WRAP).apply { bottomMargin = dp(12) })
+
+        choreTitleInput = EditText(ctx).apply {
+            hint = "Or type a chore…"
+            textSize = 16f
+            setTextColor(INK)
+            setHintTextColor(FAINT)
+            isSingleLine = true
+            background = roundedStroke(0xFFFBFAF6.toInt(), 12, dp(1), 0xFFDDD8CC.toInt())
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+        }
+        card.addView(choreTitleInput, LinearLayout.LayoutParams(dp(520), WRAP).apply { bottomMargin = dp(12) })
+
+        // Who + when ---------------------------------------------------------
+        val whoRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        whoRow.addView(TextView(ctx).apply {
+            text = "For"
+            textSize = 13f
+            setTextColor(MUTED)
+            layoutParams = LinearLayout.LayoutParams(dp(50), WRAP)
+        })
+        choreMemberBtn = TextView(ctx).apply {
+            textSize = 15f
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setPadding(dp(18), dp(7), dp(18), dp(7))
+            setOnClickListener {
+                val members = Members.all(ctx)
+                if (members.size > 1) {
+                    choreMemberIndex = (choreMemberIndex + 1) % members.size
+                    refreshChoreOverlay()
+                }
+            }
+        }
+        whoRow.addView(choreMemberBtn)
+        whoRow.addView(spacer(dp(16)))
+        choreRepeatBtn = TextView(ctx).apply {
+            text = "Repeats"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+            setOnClickListener { choreOneTime = false; refreshChoreOverlay() }
+        }
+        choreOnceBtn = TextView(ctx).apply {
+            text = "One time"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+            setOnClickListener { choreOneTime = true; refreshChoreOverlay() }
+        }
+        whoRow.addView(choreRepeatBtn)
+        whoRow.addView(spacer(dp(6)))
+        whoRow.addView(choreOnceBtn)
+        card.addView(whoRow, lpMatchWrap(bottom = dp(10)))
+
+        // Weekday chips (repeating) ------------------------------------------
+        choreDaysRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val chips = ArrayList<TextView>()
+        val dowCal = Calendar.getInstance()
+        while (dowCal.get(Calendar.DAY_OF_WEEK) != dowCal.firstDayOfWeek)
+            dowCal.add(Calendar.DAY_OF_MONTH, -1)
+        val dowFmt = SimpleDateFormat("EEEEE", Locale.getDefault())
+        repeat(7) {
+            val dow = dowCal.get(Calendar.DAY_OF_WEEK)
+            val chip = TextView(ctx).apply {
+                text = dowFmt.format(dowCal.time)
+                textSize = 14f
+                gravity = Gravity.CENTER
+                tag = dow
+                setOnClickListener {
+                    if (!choreDays.remove(dow)) choreDays.add(dow)
+                    refreshChoreOverlay()
+                }
+            }
+            choreDaysRow.addView(chip, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                rightMargin = dp(6)
+            })
+            chips.add(chip)
+            dowCal.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        choreDayChips = chips
+        card.addView(choreDaysRow, lpMatchWrap(bottom = dp(8)))
+
+        // Date stepper (one-time) --------------------------------------------
+        choreDateRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        choreDateRow.addView(navButton("‹") {
+            choreDate.add(Calendar.DAY_OF_MONTH, -1); refreshChoreOverlay()
+        })
+        choreDateLabel = TextView(ctx).apply {
+            textSize = 16f
+            setTextColor(INK)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        choreDateRow.addView(choreDateLabel, LinearLayout.LayoutParams(dp(170), WRAP))
+        choreDateRow.addView(navButton("›") {
+            choreDate.add(Calendar.DAY_OF_MONTH, 1); refreshChoreOverlay()
+        })
+        card.addView(choreDateRow, lpMatchWrap(bottom = dp(8)))
+
+        choreMsg = TextView(ctx).apply {
+            textSize = 13f
+            setTextColor(ACCENT)
+            minHeight = dp(18)
+        }
+        card.addView(choreMsg, lpMatchWrap())
+
+        val buttons = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        buttons.addView(navButton("Cancel") { hideKeyboard(); choreOverlay.visibility = View.GONE })
+        buttons.addView(accentButton("Add chore") { saveNewChore() })
+        card.addView(buttons, lpMatchWrap(top = dp(8)))
+
+        scrim.addView(card, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        return scrim
+    }
+
+    private fun saveNewChore() {
+        val title = choreTitleInput.text.toString().trim()
+        if (title.isEmpty()) { choreMsg.text = "Pick from the bank or type a chore"; return }
+        if (!choreOneTime && choreDays.isEmpty()) { choreMsg.text = "Pick at least one day"; return }
+        val members = Members.all(ctx)
+        if (members.isEmpty()) { choreMsg.text = "Add family members on the page first"; return }
+        val m = members[choreMemberIndex.coerceIn(members.indices)]
+        runCatching {
+            val action = org.json.JSONObject()
+                .put("action", "addChore")
+                .put("title", title)
+                .put("icon", choreIcon)
+                .put("memberId", m.id)
+            if (choreOneTime) {
+                action.put("oneTime", true)
+                action.put("date", SimpleDateFormat("yyyy-MM-dd", Locale.US).format(choreDate.time))
+            } else {
+                action.put("days", org.json.JSONArray(choreDays.toList()))
+            }
+            Chores.mutate(ctx, action)
+        }.onSuccess {
+            hideKeyboard()
+            choreOverlay.visibility = View.GONE
+        }.onFailure {
+            choreMsg.text = it.message ?: "Couldn't add the chore"
+        }
+    }
+
+    // ------------------------------------------------------ confirm dialog
+
+    private lateinit var confirmOverlay: FrameLayout
+    private lateinit var confirmTitle: TextView
+    private lateinit var confirmMsg: TextView
+    private lateinit var confirmButton: TextView
+    private var confirmAction: (() -> Unit)? = null
+
+    private fun confirm(title: String, message: String, button: String, action: () -> Unit) {
+        confirmTitle.text = title
+        confirmMsg.text = message
+        confirmButton.text = button
+        confirmAction = action
+        confirmOverlay.visibility = View.VISIBLE
+    }
+
+    private fun buildConfirmOverlay(): FrameLayout {
+        val scrim = FrameLayout(ctx).apply {
+            setBackgroundColor(SCRIM)
+            visibility = View.GONE
+            setOnClickListener { visibility = View.GONE }
+        }
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(CARD, 20)
+            elevation = dp(10).toFloat()
+            setPadding(dp(28), dp(22), dp(28), dp(14))
+            isClickable = true
+            minimumWidth = dp(380)
+        }
+        confirmTitle = TextView(ctx).apply {
+            textSize = 19f
+            setTextColor(INK)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        card.addView(confirmTitle)
+        confirmMsg = TextView(ctx).apply {
+            textSize = 15f
+            setTextColor(MUTED)
+        }
+        card.addView(confirmMsg, lpMatchWrap(top = dp(8)))
+        val buttons = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        buttons.addView(navButton("Cancel") { confirmOverlay.visibility = View.GONE })
+        confirmButton = accentButton("Remove") {
+            confirmOverlay.visibility = View.GONE
+            confirmAction?.invoke()
+            confirmAction = null
+        }
+        buttons.addView(confirmButton)
+        card.addView(buttons, lpMatchWrap(top = dp(14)))
+        scrim.addView(card, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        return scrim
     }
 
     // ------------------------------------------------------------ kid lock
@@ -505,7 +842,18 @@ class BoardController(private val baseCtx: Context) {
         // Other tabs ---------------------------------------------------------
         listsTab = ListsTab(ctx) { action -> requirePin(action) }
         area.addView(listsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
-        choresTab = ChoresTab(ctx)
+        choresTab = ChoresTab(ctx,
+            onAddChore = { requirePin { showChoreOverlay() } },
+            onRemoveChore = { id, label ->
+                requirePin {
+                    confirm("Remove this chore?", label, "Remove") {
+                        runCatching {
+                            Chores.mutate(ctx, org.json.JSONObject()
+                                .put("action", "deleteChore").put("choreId", id))
+                        }
+                    }
+                }
+            })
         area.addView(choresTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
         mealsTab = MealsTab(ctx) { title, body ->
             detailTitle.text = title
@@ -1556,7 +1904,6 @@ class BoardController(private val baseCtx: Context) {
                 setTextColor(MUTED)
                 setPadding(0, dp(10), 0, 0)
             })
-            appendSidebarChores()
             return
         }
         for (ev in todays) {
@@ -1587,63 +1934,6 @@ class BoardController(private val baseCtx: Context) {
             })
             row.addView(textCol, LinearLayout.LayoutParams(0, WRAP, 1f))
             todayList.addView(row, lpMatchWrap(bottom = dp(6)))
-        }
-        appendSidebarChores()
-    }
-
-    /** Compact "chores due today" block under the Today agenda. */
-    private fun appendSidebarChores() {
-        val status = try { org.json.JSONObject(Chores.statusJson(ctx)) } catch (e: Exception) { return }
-        val chores = status.getJSONArray("chores")
-        if (chores.length() == 0) return
-        val doneArr = status.getJSONArray("doneToday")
-        val done = (0 until doneArr.length()).map { doneArr.optString(it) }.toSet()
-        val members = status.getJSONArray("members")
-        val dow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-
-        val due = (0 until chores.length()).map { chores.getJSONObject(it) }
-            .filter { Chores.isDue(it, dow) }
-            .sortedBy { done.contains(it.optString("id")) }
-        if (due.isEmpty()) return
-
-        todayList.addView(TextView(ctx).apply {
-            text = "CHORES"
-            textSize = 13f
-            setTextColor(ACCENT)
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            letterSpacing = 0.12f
-            setPadding(0, dp(14), 0, dp(4))
-        })
-        for (c in due.take(6)) {
-            val isDone = done.contains(c.optString("id"))
-            val member = (0 until members.length()).map { members.getJSONObject(it) }
-                .find { it.optString("id") == c.optString("memberId") }
-            val color = Members.parse(member?.optString("color") ?: "#A3A8B0")
-            val row = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(6), 0, dp(6))
-                setOnClickListener {
-                    runCatching {
-                        Chores.mutate(ctx, org.json.JSONObject()
-                            .put("action", "toggle").put("choreId", c.optString("id")))
-                    }
-                }
-            }
-            row.addView(View(ctx).apply {
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    if (isDone) setColor(color) else { setColor(Color.TRANSPARENT); setStroke(dp(2), color) }
-                }
-            }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { rightMargin = dp(10) })
-            row.addView(TextView(ctx).apply {
-                text = "${c.optString("icon")} ${c.optString("title")}"
-                textSize = 14f
-                setTextColor(if (isDone) FAINT else INK)
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-            }, LinearLayout.LayoutParams(0, WRAP, 1f))
-            todayList.addView(row, lpMatchWrap())
         }
     }
 
@@ -1781,6 +2071,13 @@ class BoardController(private val baseCtx: Context) {
         private const val VIEW_WEEK = 1
         private const val VIEW_MONTH = 2
         private const val VIEW_SCHEDULE = 3
+
+        /** Quick-pick chores for the on-device composer. */
+        private val CHORE_BANK = listOf(
+            "🛏️" to "Make the bed", "🦷" to "Brush teeth", "📚" to "Homework",
+            "🐕" to "Feed the pet", "🍽️" to "Set the table", "🥣" to "Clear the dishes",
+            "🧺" to "Put laundry away", "🧸" to "Tidy your room", "🗑️" to "Take out the trash",
+            "🚿" to "Shower", "🎵" to "Practice music", "🪴" to "Water the plants")
 
         // Warm-paper light theme
         private val BG = 0xFFF4F1EA.toInt()          // warm paper background

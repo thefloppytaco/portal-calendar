@@ -89,20 +89,22 @@ class MealsTab(
                 gravity = Gravity.CENTER
             }, lp(bottom = dp(8)))
 
+            var anyMeal = false
             for ((slot, emoji) in SLOT_EMOJI) {
-                val entry = plan[slot]
+                val entry = plan[slot] ?: continue // only show planned slots
+                anyMeal = true
                 col.addView(TextView(ctx).apply {
                     text = emoji
                     textSize = 12f
                     setTextColor(FAINT)
                 }, lp())
                 col.addView(TextView(ctx).apply {
-                    text = entry?.optString("text")?.ifEmpty { "—" } ?: "—"
+                    text = entry.optString("text").ifEmpty { "—" }
                     textSize = 13.5f
-                    setTextColor(if (entry != null) INK else FAINT)
+                    setTextColor(INK)
                     maxLines = 2
                     ellipsize = TextUtils.TruncateAt.END
-                    if (entry != null) {
+                    run {
                         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                         setOnClickListener {
                             val r = Meals.recipe(ctx, entry.optString("recipeId"))
@@ -124,6 +126,15 @@ class MealsTab(
                         }
                     }
                 }, lp(bottom = dp(8)))
+            }
+            if (!anyMeal) {
+                col.addView(TextView(ctx).apply {
+                    text = "—"
+                    textSize = 16f
+                    setTextColor(FAINT)
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(20), 0, 0)
+                }, lp())
             }
             grid.addView(col, LinearLayout.LayoutParams(0, MATCH, 1f).apply {
                 leftMargin = dp(3); rightMargin = dp(3)
