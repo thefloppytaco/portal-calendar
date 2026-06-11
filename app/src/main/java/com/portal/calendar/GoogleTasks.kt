@@ -122,6 +122,9 @@ object GoogleTasks {
                 .put("status", if (done) "completed" else "needsAction").toString())
             item.put("gtaskId", created.getString("id"))
             item.put("gdone", done)
+            // The remote snapshot predates this insert — without this, step 4
+            // would treat the brand-new task as deleted-on-Google.
+            remote[created.getString("id")] = created
         }
 
         // 4. Reconcile shared items.

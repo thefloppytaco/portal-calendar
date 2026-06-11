@@ -16,21 +16,33 @@ secondhand Portal.
   tap an event for details. The board always returns to the current week when it
   takes over the screen.
 - **Chores & star rewards** — chores belong to a family member and repeat on chosen
-  weekdays. Kids tap big cards on the Chores tab to complete them and earn stars
-  toward a weekly goal (tally + progress bar per kid). Today's chores also sit under
-  the sidebar agenda.
+  weekdays or run one-time on a date. Kids tap big cards on the Chores tab to complete
+  them and earn stars toward a weekly goal (tally + progress bar per kid). Add chores
+  right on the Portal too: a + Add composer with a quick-pick bank of common chores;
+  long-press a card to remove one.
 - **Shared lists** — groceries, to-dos, packing lists; check things off on the board
-  or from any phone on the Wi-Fi.
+  or from any phone on the Wi-Fi. Optionally link a list **two-way with Google Tasks**
+  to edit it from anywhere.
+- **Magic words & inbox calendars** — title a calendar event `todo: …`, `groceries: …`
+  or `chore: Chani water the plants` from any synced calendar and the board hides it
+  and routes it (lists auto-create; a family member's name assigns the chore on the
+  event's date). Or add a dedicated **Inbox calendar** — hidden on everyone's phones,
+  never rendered on the board — where plain phrases work with no prefix at all:
+  `add oat milk to groceries`, `buy batteries`, `remind Chani to water the plants`.
+  Trigger words, list names and member names are all typo-tolerant.
 - **Meal planner + recipe box** — plan breakfast/lunch/dinner/snack for the week on
   the page; the board shows the week's menu, and meals linked to a recipe open it
   on tap.
 - **Weather** — free Open-Meteo forecasts (no API key): current conditions in the
   sidebar, daily highs in the week header, and an hour-accurate forecast on each
   event's details. Set the location once on the page.
-- **Kid lock** — an optional 4-digit PIN gates adding events, Settings, and list
-  deletion on the touchscreen, while chores and list check-offs stay kid-friendly.
+- **Kid lock** — an optional 4-digit PIN gates adding events/chores, Settings, and
+  deletions on the touchscreen, while chores and list check-offs stay kid-friendly.
 - **Family members** — one color per person, used consistently across calendars,
   chores, and stars.
+- **Make it yours** — a live display-size slider (70–160%) that zooms the whole UI
+  (10″ Portals like ~110–125%), and per-feature toggles that hide the Chores, Lists,
+  or Meals tabs entirely if your family doesn't use them.
 - **Syncs any calendar that has an iCal feed** — Google Calendar secret addresses,
   iCloud public calendar links (`webcal://`), or any other `.ics` URL. One color per
   person. Recurring events, edited instances, and cancellations all handled.

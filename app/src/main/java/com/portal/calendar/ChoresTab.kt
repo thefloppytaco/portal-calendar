@@ -164,8 +164,8 @@ class ChoresTab(
                 val card = LinearLayout(ctx).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    background = if (done) rounded(color, 14)
-                                 else roundedStroke(BG_SOFT, 14, dp(2), mix(color, Color.WHITE, 0.55f))
+                    background = if (done) rounded(color, Palette.R_ELEMENT)
+                                 else roundedStroke(BG_SOFT, Palette.R_ELEMENT, dp(2), mix(color, Color.WHITE, 0.55f))
                     setPadding(dp(14), dp(13), dp(14), dp(13))
                 }
                 card.addView(TextView(ctx).apply {
@@ -247,11 +247,11 @@ class ChoresTab(
     companion object {
         private const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         private const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
-        private val CARD = 0xFFFFFFFF.toInt()
-        private val BG_SOFT = 0xFFFDFCF9.toInt()
-        private val PILL = 0xFFEAE6DC.toInt()
-        private val INK = 0xFF333A45.toInt()
-        private val MUTED = 0xFF737983.toInt()
-        private val ACCENT = 0xFFF0584C.toInt()
+        private val CARD = Palette.CARD
+        private val BG_SOFT = Palette.CARD_SOFT
+        private val PILL = Palette.PILL
+        private val INK = Palette.INK
+        private val MUTED = Palette.MUTED
+        private val ACCENT = Palette.ACCENT
     }
 }

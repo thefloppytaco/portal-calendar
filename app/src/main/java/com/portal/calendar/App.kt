@@ -35,6 +35,9 @@ class App : Application() {
     /** The board currently on screen, if any — used for live scale preview. */
     var activeBoard: BoardController? = null
 
+    /** Last synced events, so a rebuilt board paints instantly instead of empty. */
+    @Volatile var lastEvents: List<EventInstance> = emptyList()
+
     fun onMain(block: () -> Unit) {
         main.post(block)
     }

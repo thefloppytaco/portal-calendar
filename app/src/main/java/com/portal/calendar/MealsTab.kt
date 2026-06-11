@@ -38,10 +38,18 @@ class MealsTab(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        rangeLabel = TextView(ctx).apply {
-            textSize = 22f
-            setTextColor(INK)
+        nav.addView(TextView(ctx).apply {
+            text = "MEALS"
+            textSize = 13f
+            setTextColor(ACCENT)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            letterSpacing = 0.14f
+        })
+        rangeLabel = TextView(ctx).apply {
+            textSize = 15f
+            setTextColor(MUTED)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setPadding(dp(12), 0, 0, 0)
         }
         nav.addView(rangeLabel, LinearLayout.LayoutParams(0, WRAP, 1f))
         nav.addView(pill("‹") { weekOffset--; render() })
@@ -62,7 +70,7 @@ class MealsTab(
         ws.add(Calendar.DAY_OF_MONTH, weekOffset * 7)
         val rangeFmt = SimpleDateFormat("MMM d", Locale.getDefault())
         val weekEnd = (ws.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 6) }
-        rangeLabel.text = "Meals · " + rangeFmt.format(ws.time) + " – " + rangeFmt.format(weekEnd.time)
+        rangeLabel.text = rangeFmt.format(ws.time) + " – " + rangeFmt.format(weekEnd.time)
 
         val today = Calendar.getInstance()
         val dayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -77,7 +85,7 @@ class MealsTab(
 
             val col = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
-                background = if (isToday) strokeCard() else rounded(CARD, 14)
+                background = if (isToday) strokeCard() else rounded(CARD, Palette.R_CARD)
                 elevation = dp(1).toFloat()
                 setPadding(dp(10), dp(10), dp(10), dp(10))
             }
@@ -161,8 +169,8 @@ class MealsTab(
     }
 
     private fun strokeCard() = GradientDrawable().apply {
-        setColor(0xFFFFF9F2.toInt())
-        cornerRadius = dp(14).toFloat()
+        setColor(Palette.TODAY_CARD)
+        cornerRadius = dp(Palette.R_CARD).toFloat()
         setStroke(dp(2), ACCENT)
     }
 
@@ -175,11 +183,11 @@ class MealsTab(
         private val SLOT_EMOJI = listOf(
             "breakfast" to "🍳 BREAKFAST", "lunch" to "🥪 LUNCH",
             "dinner" to "🍝 DINNER", "snack" to "🍎 SNACK")
-        private val CARD = 0xFFFFFFFF.toInt()
-        private val PILL = 0xFFEAE6DC.toInt()
-        private val INK = 0xFF333A45.toInt()
-        private val MUTED = 0xFF737983.toInt()
-        private val FAINT = 0xFFA3A8B0.toInt()
-        private val ACCENT = 0xFFF0584C.toInt()
+        private val CARD = Palette.CARD
+        private val PILL = Palette.PILL
+        private val INK = Palette.INK
+        private val MUTED = Palette.MUTED
+        private val FAINT = Palette.FAINT
+        private val ACCENT = Palette.ACCENT
     }
 }

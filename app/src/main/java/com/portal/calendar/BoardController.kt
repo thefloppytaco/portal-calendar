@@ -56,6 +56,9 @@ class BoardController(private val baseCtx: Context) {
     /** When set, a ✕ button appears next to ⚙ and invokes this. */
     var onExit: (() -> Unit)? = null
 
+    /** Host swaps the board in place at the new scale (no activity recreate). */
+    var onScaleCommitted: ((fromSettings: Boolean) -> Unit)? = null
+
     private var events: List<EventInstance> = emptyList()
     private var weekOffset = 0
     private var monthOffset = 0
@@ -147,8 +150,9 @@ class BoardController(private val baseCtx: Context) {
     }
     private val configListener: () -> Unit = {
         if (store.uiScale() != uiScale) {
-            // Scale changed (from the config page or ⚙) — rebuild the whole UI.
-            (baseCtx as? android.app.Activity)?.recreate()
+            // Scale changed (from the config page) — swap the board in place.
+            onScaleCommitted?.invoke(false)
+                ?: (baseCtx as? android.app.Activity)?.recreate()
         } else {
             // Commit at the unchanged value: no rebuild happens, so make sure
             // any live-preview transform is cleared.
@@ -171,10 +175,13 @@ class BoardController(private val baseCtx: Context) {
         contentRow.scaleY = f
     }
 
-    fun commitScale(target: Float) {
+    fun commitScale(target: Float, fromSettings: Boolean = false) {
         store.setUiScale(target)
-        (baseCtx as? android.app.Activity)?.recreate()
+        onScaleCommitted?.invoke(fromSettings)
+            ?: (baseCtx as? android.app.Activity)?.recreate()
     }
+
+    fun openSettings() = showSettingsOverlay()
 
     private val dataListener: () -> Unit = {
         applyFeatures()
@@ -212,6 +219,7 @@ class BoardController(private val baseCtx: Context) {
         App.instance.activeBoard = this
         App.instance.addConfigListener(configListener)
         App.instance.addDataListener(dataListener)
+        events = App.instance.lastEvents // paint instantly; sync refreshes shortly
         applyFeatures()
         exitButton.visibility = if (onExit != null) View.VISIBLE else View.GONE
         renderAll()
@@ -268,6 +276,7 @@ class BoardController(private val baseCtx: Context) {
         }
         sync.requestSync { evs, problems ->
             events = evs
+            App.instance.lastEvents = evs
             statusLine = if (problems.isEmpty())
                 "Updated " + timeFormat().format(Calendar.getInstance().time)
             else problems.joinToString("\n")
@@ -531,7 +540,7 @@ class BoardController(private val baseCtx: Context) {
         buttons.addView(accentButton("Add chore") { saveNewChore() })
         card.addView(buttons, lpMatchWrap(top = dp(8)))
 
-        scrim.addView(card, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        scrim.addView(overlayScroll(card), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         return scrim
     }
 
@@ -1209,7 +1218,8 @@ class BoardController(private val baseCtx: Context) {
                 }
                 override fun onStartTrackingTouch(sb: android.widget.SeekBar) {}
                 override fun onStopTrackingTouch(sb: android.widget.SeekBar) {
-                    commitScale(sb.progress / 100f) // crisp re-layout on release
+                    // Crisp re-layout on release; the host reopens this overlay.
+                    commitScale(sb.progress / 100f, fromSettings = true)
                 }
             })
         }
@@ -1229,8 +1239,14 @@ class BoardController(private val baseCtx: Context) {
         buttons.addView(navButton("Close") { settingsOverlay.visibility = View.GONE })
         card.addView(buttons, lpMatchWrap(top = dp(14)))
 
-        scrim.addView(card, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        scrim.addView(overlayScroll(card), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         return scrim
+    }
+
+    /** Caps an overlay card at the screen height — scrolls at large UI scales. */
+    private fun overlayScroll(card: View): View = ScrollView(ctx).apply {
+        isVerticalScrollBarEnabled = false
+        addView(card)
     }
 
     private fun buildAddOverlay(): FrameLayout {
@@ -1355,7 +1371,7 @@ class BoardController(private val baseCtx: Context) {
         buttons.addView(addSaveButton)
         card.addView(buttons, lpMatchWrap(top = dp(8)))
 
-        scrim.addView(card, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        scrim.addView(overlayScroll(card), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         return scrim
     }
 
@@ -1655,7 +1671,7 @@ class BoardController(private val baseCtx: Context) {
             val card = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                background = rounded(mix(ev.color, CARD, 0.88f), 14)
+                background = rounded(mix(ev.color, CARD, 0.88f), Palette.R_ELEMENT)
                 elevation = dp(1).toFloat()
                 setPadding(dp(16), dp(14), dp(16), dp(14))
             }
@@ -2080,17 +2096,17 @@ class BoardController(private val baseCtx: Context) {
             "🧺" to "Put laundry away", "🧸" to "Tidy your room", "🗑️" to "Take out the trash",
             "🚿" to "Shower", "🎵" to "Practice music", "🪴" to "Water the plants")
 
-        // Warm-paper light theme
-        private val BG = 0xFFF4F1EA.toInt()          // warm paper background
-        private val CARD = 0xFFFFFFFF.toInt()        // white cards
-        private val TODAY_CARD = 0xFFFFF9F2.toInt()  // cream tint for today
-        private val PILL = 0xFFEAE6DC.toInt()        // button pills
-        private val INK = 0xFF333A45.toInt()         // primary text
-        private val MUTED = 0xFF737983.toInt()       // secondary text
-        private val FAINT = 0xFFA3A8B0.toInt()       // tertiary text
-        private val ACCENT = 0xFFF0584C.toInt()      // coral
-        private val OUT_CARD = 0xFFF8F5EE.toInt()    // outside-month cells
-        private val LINE = 0xFFECE8DF.toInt()        // hairlines
-        private val SCRIM = 0x59000000               // overlay dim
+        // Single source of truth: Palette.kt
+        private val BG = Palette.BG
+        private val CARD = Palette.CARD
+        private val TODAY_CARD = Palette.TODAY_CARD
+        private val PILL = Palette.PILL
+        private val INK = Palette.INK
+        private val MUTED = Palette.MUTED
+        private val FAINT = Palette.FAINT
+        private val ACCENT = Palette.ACCENT
+        private val OUT_CARD = Palette.OUT_CARD
+        private val LINE = Palette.LINE
+        private const val SCRIM = Palette.SCRIM
     }
 }

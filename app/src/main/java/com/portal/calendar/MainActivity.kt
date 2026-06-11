@@ -21,11 +21,24 @@ class MainActivity : Activity() {
         // Surface over any lock layer when relaunched out of sleep by the takeover.
         setShowWhenLocked(true)
         setTurnScreenOn(true)
+        attachBoard(reopenSettings = false)
+        hideSystemUi()
+    }
+
+    /**
+     * (Re)build the board in place — one frame swap instead of an activity
+     * recreate, so committing a new display size doesn't flash.
+     */
+    private fun attachBoard(reopenSettings: Boolean) {
         board = BoardController(this)
         board.onExit = { goHome() }
+        board.onScaleCommitted = { fromSettings ->
+            board.stop()
+            attachBoard(reopenSettings = fromSettings)
+        }
         setContentView(board.view)
-        hideSystemUi()
         board.start()
+        if (reopenSettings) board.openSettings()
     }
 
     override fun onDestroy() {
