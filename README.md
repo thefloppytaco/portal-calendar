@@ -5,6 +5,8 @@ wall display that syncs everyone's Google and Apple calendars, color-coded per p
 with two-way event creation. Think Skylight-style family board, built from a $30
 secondhand Portal.
 
+[![Get it on OpenPortal](https://andronedev.github.io/openportal/openportal-badge.svg)](https://andronedev.github.io/openportal/apps/com.portal.calendar)
+
 | Week board | Month board |
 |---|---|
 | ![Week view](docs/week-view.png) | ![Month view](docs/month-view.png) |
@@ -46,6 +48,11 @@ adb shell am start -n com.portal.calendar/.MainActivity
 ```
 
 That's it. The board shows a QR code; everything else happens from your phone.
+
+**No `adb`?** You can install straight from your browser with
+[OpenPortal](https://andronedev.github.io/openportal/apps/com.portal.calendar) — plug
+the Portal into any Chromium-based browser via USB, click install, and skip the
+`adb` commands above. No driver or toolchain needed.
 
 ## Setup
 
