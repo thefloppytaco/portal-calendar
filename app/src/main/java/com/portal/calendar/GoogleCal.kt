@@ -30,7 +30,9 @@ object GoogleCal {
     private const val TOKEN_URL = "https://oauth2.googleapis.com/token"
     private const val API = "https://www.googleapis.com/calendar/v3"
     private const val SCOPES =
-        "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly"
+        "https://www.googleapis.com/auth/calendar.events " +
+        "https://www.googleapis.com/auth/calendar.readonly " +
+        "https://www.googleapis.com/auth/tasks"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -136,6 +138,9 @@ object GoogleCal {
         }
     }
 
+    /** A fresh access token for sibling Google APIs (Tasks). */
+    fun bearer(ctx: Context): String = accessToken(ctx)
+
     // ------------------------------------------------------------ plumbing
 
     private fun accessToken(ctx: Context): String {
@@ -152,10 +157,14 @@ object GoogleCal {
             .add("grant_type", "refresh_token")
             .build())
         val token = resp.getString("access_token")
-        p.edit()
+        val edit = p.edit()
             .putString("g_access", token)
             .putLong("g_token_exp", System.currentTimeMillis() + resp.optLong("expires_in", 3600) * 1000)
-            .apply()
+        // If Google ever rotates the refresh token, persist it BEFORE using
+        // anything — a rotated-but-unpersisted token bricks the connection.
+        resp.optString("refresh_token").takeIf { it.isNotEmpty() }
+            ?.let { edit.putString("g_refresh", it) }
+        edit.commit() // synchronous: a crash right after must not lose this
         return token
     }
 

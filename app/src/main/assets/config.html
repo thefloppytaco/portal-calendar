@@ -41,11 +41,13 @@
   }
   button.ghost { background: #eae6dc; color: #333a45; }
   button.del { background: none; color: #f0584c; font-size: 22px; padding: 4px 8px; flex: none; }
-  input[type=text], input[type=url], input[type=date], input[type=time], select {
+  input[type=text], input[type=url], input[type=date], input[type=time],
+  input[type=number], select, textarea {
     width: 100%; font: inherit; color: #333a45;
     background: #fbfaf6; border: 1px solid #ddd8cc; border-radius: 12px;
     padding: 12px; margin: 6px 0 12px;
   }
+  textarea { min-height: 72px; resize: vertical; }
   input[type=color] {
     width: 52px; height: 40px; border: none; background: none; padding: 0;
     vertical-align: middle;
@@ -56,6 +58,29 @@
   .btnrow button { flex: 1; }
   .msgline { min-height: 22px; font-size: 14px; margin-top: 10px; }
   .msgline.ok { color: #2e9e4f; } .msgline.err { color: #d63b2f; }
+
+  /* ----- setup wizard ----- */
+  #wizard {
+    display: none; position: fixed; inset: 0; z-index: 50;
+    background: #f4f1ea; flex-direction: column; overflow-y: auto;
+  }
+  .wiz-top {
+    display: flex; align-items: center; padding: 16px;
+  }
+  .wiz-dots { flex: 1; display: flex; gap: 7px; justify-content: center; }
+  .wiz-dot { width: 9px; height: 9px; border-radius: 50%; background: #ddd8cc; transition: all .2s; }
+  .wiz-dot.on { background: #f0584c; width: 22px; border-radius: 5px; }
+  .wiz-skip { color: #737983; font-size: 14px; background: none; border: none; padding: 8px; }
+  .wiz-body { flex: 1; max-width: 560px; width: 100%; margin: 0 auto; padding: 8px 20px 16px; }
+  .wiz-kicker { color: #f0584c; font-size: 13px; font-weight: 600; letter-spacing: .12em; }
+  .wiz-title { font-size: 26px; font-weight: 700; margin: 6px 0 8px; line-height: 1.2; }
+  .wiz-sub { color: #737983; font-size: 15px; line-height: 1.5; margin-bottom: 18px; }
+  .wiz-nav {
+    max-width: 560px; width: 100%; margin: 0 auto; padding: 8px 20px 28px;
+    display: flex; gap: 10px;
+  }
+  .wiz-nav button { flex: 1; padding: 15px; font-size: 16px; border-radius: 14px; }
+  .wiz-emoji { font-size: 44px; margin: 4px 0 10px; }
   details { margin-top: 4px; }
   summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
   ol { padding-left: 20px; color: #4d535e; font-size: 14px; }
@@ -66,6 +91,16 @@
 </style>
 </head>
 <body>
+  <div id="wizard">
+    <div class="wiz-top">
+      <div style="width:90px;"></div>
+      <div class="wiz-dots" id="wizDots"></div>
+      <button class="wiz-skip" style="width:90px;" onclick="exitWizard()">Skip setup</button>
+    </div>
+    <div class="wiz-body" id="wizBody"></div>
+    <div class="wiz-nav" id="wizNav"></div>
+  </div>
+
   <h1>Family Calendar</h1>
   <div class="sub">Your family hub, served straight from the Portal</div>
 
@@ -73,6 +108,7 @@
     <button data-tabbtn="calendar" onclick="showTab('calendar')" style="flex:1;">Calendar</button>
     <button data-tabbtn="chores" class="ghost" onclick="showTab('chores')" style="flex:1;">Chores</button>
     <button data-tabbtn="lists" class="ghost" onclick="showTab('lists')" style="flex:1;">Lists</button>
+    <button data-tabbtn="meals" class="ghost" onclick="showTab('meals')" style="flex:1;">Meals</button>
     <button data-tabbtn="family" class="ghost" onclick="showTab('family')" style="flex:1;">Family</button>
     <button data-tabbtn="settings" class="ghost" onclick="showTab('settings')" style="flex:1;">Settings</button>
   </div>
@@ -87,6 +123,7 @@
     <div id="choreBox" style="margin-top:8px;"></div>
     <div style="border-top:1px solid #efece4;margin-top:14px;padding-top:12px;">
       <strong style="font-size:14px;">Add a chore</strong>
+      <div id="choreBank" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
       <div class="row2" style="margin-top:8px;">
         <select id="chIcon" style="margin:0;flex:none;width:84px;">
           <option>⭐</option><option>🛏️</option><option>🦷</option><option>🧹</option>
@@ -95,10 +132,15 @@
         </select>
         <input type="text" id="chTitle" placeholder="e.g. Make your bed" autocomplete="off" style="margin:0;">
       </div>
+      <div id="chMembers" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;"></div>
       <div class="row2">
-        <select id="chMember" style="margin:0;"></select>
+        <select id="chMode" style="margin:0;" onchange="renderChoreSchedule()">
+          <option value="repeat">Repeats</option>
+          <option value="once">One time</option>
+        </select>
       </div>
       <div id="chDays" style="display:flex;gap:6px;margin:6px 0 12px;"></div>
+      <input type="date" id="chDate" style="display:none;">
       <button style="width:100%;" onclick="addChore()">Add chore</button>
     </div>
     <div id="choreMsg" class="msgline"></div>
@@ -113,9 +155,52 @@
     <div id="listsMsg" class="msgline"></div>
   </div>
 
+  <div class="card" data-tab="meals" id="aiMealCard" style="display:none;">
+    <strong>✨ Plan a meal</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 8px;">Name a dish — AI writes the recipe, puts it on the calendar, and makes a dedicated shopping list for it (named after the recipe) so everyone can check off what's already in the pantry.</div>
+    <input type="text" id="aiMealDish" placeholder="e.g. sheet-pan fajitas" autocomplete="off">
+    <div class="row2">
+      <select id="aiMealDay" style="margin:0;"></select>
+      <select id="aiMealSlot" style="margin:0;">
+        <option value="dinner">Dinner</option><option value="lunch">Lunch</option>
+        <option value="breakfast">Breakfast</option><option value="snack">Snack</option>
+      </select>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin:2px 0 10px;">
+      <input type="checkbox" id="aiMealGroceries" checked style="width:20px;height:20px;flex:none;">
+      Make a shopping list for this recipe
+    </label>
+    <button style="width:100%;" onclick="aiPlanMeal()">Generate &amp; plan it</button>
+    <div id="aiMealMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="meals">
+    <strong>This week's meals</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 8px;">Type a meal and press Enter — start with a recipe's exact name to link it. The board's Meals tab shows the week.</div>
+    <div id="mealPlan"></div>
+    <div id="mealMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="meals">
+    <strong>Recipe box</strong>
+    <div id="recipeBox" style="margin-top:8px;"></div>
+    <div style="border-top:1px solid #efece4;margin-top:12px;padding-top:12px;">
+      <div class="row2" id="aiRecipeRow" style="display:none;">
+        <input type="text" id="aiDish" placeholder="✨ e.g. one-pot chicken and rice" autocomplete="off" style="margin:0;">
+        <button class="ghost" style="flex:none;" onclick="aiRecipe()">Generate</button>
+      </div>
+      <input type="text" id="rcTitle" placeholder="Recipe name" autocomplete="off">
+      <textarea id="rcIngredients" placeholder="Ingredients (one per line)"></textarea>
+      <textarea id="rcSteps" placeholder="Steps"></textarea>
+      <button style="width:100%;" onclick="addRecipe()">Add recipe</button>
+    </div>
+    <div id="recipeMsg" class="msgline"></div>
+  </div>
+
   <div class="card" data-tab="family">
     <strong>Family members</strong>
     <div style="font-size:13px;color:#737983;margin:6px 0 10px;">Members power chores, stars and color coding across the board. Started from your calendar names — edit freely.</div>
+    <div style="font-size:12px;color:#a3a8b0;margin-bottom:4px;">The optional PIN means only that person (or a parent with the kid-lock PIN) can check off their chores on the board.</div>
     <div id="membersBox"></div>
     <div class="btnrow" style="margin-top:10px;">
       <button class="ghost" onclick="addMemberRow()">+ Add member</button>
@@ -164,6 +249,18 @@
     </div>
   </div>
 
+  <div class="card" data-tab="calendar" id="aiImportCard" style="display:none;">
+    <strong>✨ Smart import</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 8px;">Paste an email or schedule, or snap a photo of a flyer — AI proposes events, list items and chores, and nothing is added until you confirm.</div>
+    <textarea id="aiText" placeholder="Paste text here (optional if you attach a photo)"></textarea>
+    <div class="row2">
+      <input type="file" id="aiPhoto" accept="image/*" style="margin:0;flex:1;font-size:13px;">
+      <button class="ghost" style="flex:none;" onclick="aiImport()">Read it</button>
+    </div>
+    <div id="aiProposals"></div>
+    <div id="aiImpMsg" class="msgline"></div>
+  </div>
+
   <div class="card" data-tab="calendar">
     <div id="list"></div>
   </div>
@@ -177,7 +274,12 @@
     <div class="row2">
       <label for="color">Color</label>
       <input type="color" id="color" value="#2d81ff">
+      <select id="calKind" style="margin:0;flex:1;">
+        <option value="calendar">Shows on the board</option>
+        <option value="inbox">Inbox — every event is a command (hidden)</option>
+      </select>
     </div>
+    <div style="font-size:13px;color:#737983;margin-bottom:10px;">Tip: make a shared calendar called "Portal Inbox", hide it from view on everyone's phones (its checkbox in the calendar app), and add it here as an Inbox — then anyone can send <em>"add oat milk to groceries"</em> or <em>"remind Chani to water the plants"</em> from anywhere without cluttering their own calendar.</div>
     <div class="btnrow">
       <button onclick="addCal()">Add calendar</button>
     </div>
@@ -190,6 +292,67 @@
       Show the calendar when the Portal idles (instead of the photo screensaver)
     </label>
     <div id="ssNote" style="color:#8b949e;font-size:13px;margin-top:8px;"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
+    <strong>AI features <span style="font-size:12px;color:#737983;">(Gemini, optional)</span></strong>
+    <label style="display:flex;align-items:center;gap:10px;font-size:15px;margin-top:10px;">
+      <input type="checkbox" id="aiToggle" onchange="aiSetEnabled()" style="width:22px;height:22px;flex:none;">
+      Enable AI features
+    </label>
+    <div style="font-size:13px;color:#737983;margin-top:6px;">Adds Smart Import (photos/text → events, lists, chores) and AI recipes. Until this is on with a key saved, those options don't appear anywhere.</div>
+    <div id="aiConfig" style="display:none;margin-top:10px;">
+      <label for="aiKey">Google AI API key</label>
+      <input type="text" id="aiKey" placeholder="AIza…" autocomplete="off">
+      <div style="font-size:13px;color:#737983;margin-bottom:8px;">Free at <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a> → Get API key. Stored on the Portal only.</div>
+      <button class="ghost" style="width:100%;" onclick="aiSaveKey()">Save &amp; verify key</button>
+      <div id="aiModelRow" style="display:none;margin-top:10px;">
+        <label for="aiModel">Model (auto-detected from your key; falls back automatically)</label>
+        <select id="aiModel" onchange="aiSetModel()"></select>
+      </div>
+    </div>
+    <div id="aiMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
+    <strong>Board tabs</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 10px;">Switch off what your family doesn't use — the tab disappears from the Portal.</div>
+    <div id="featRow" style="display:flex;flex-direction:column;gap:10px;">
+      <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featChores" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Chores &amp; stars</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featLists" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Lists</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featMeals" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Meals</label>
+    </div>
+    <div id="featMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
+    <strong>Kid lock</strong>
+    <div id="pinStatus" style="font-size:14px;color:#4d535e;margin:8px 0;"></div>
+    <div class="row2">
+      <input type="text" id="pinInput" placeholder="4-digit PIN" maxlength="4" inputmode="numeric"
+             autocomplete="off" style="margin:0;">
+      <button class="ghost" style="flex:none;" onclick="setPin()">Set PIN</button>
+      <button class="ghost" style="flex:none;" onclick="clearPin()">Remove</button>
+    </div>
+    <div style="font-size:13px;color:#737983;margin-top:6px;">With a PIN set, adding events, opening Settings, and deleting lists on the Portal's touchscreen ask for it. Kids can still check off chores and list items. This page stays unlocked.</div>
+    <div id="pinMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
+    <strong>Weather</strong>
+    <div id="wxStatus" style="font-size:14px;color:#4d535e;margin:8px 0;"></div>
+    <div class="row2">
+      <input type="text" id="wxQ" placeholder="City or ZIP code" autocomplete="off" style="margin:0;"
+             onkeydown="if(event.key==='Enter')wxSearch()">
+      <button class="ghost" style="flex:none;" onclick="wxSearch()">Search</button>
+    </div>
+    <div id="wxResults"></div>
+    <div class="row2" style="align-items:center;">
+      <span style="font-size:14px;color:#737983;">Units:</span>
+      <button id="wxF" class="ghost" style="flex:1;" onclick="wxUnit('f')">°F</button>
+      <button id="wxC" class="ghost" style="flex:1;" onclick="wxUnit('c')">°C</button>
+    </div>
+    <div id="wxMsg" class="msgline"></div>
   </div>
 
   <div class="card" data-tab="settings">
@@ -253,6 +416,7 @@
 
   <div class="btnrow" data-tab="settings">
     <button class="ghost" onclick="syncNow()">Sync the Portal now</button>
+    <button class="ghost" onclick="showWizard()">Run setup wizard</button>
   </div>
   <div id="msg" class="msgline"></div>
 
@@ -281,6 +445,17 @@
       </ol>
     </details>
     <details>
+      <summary>Magic words — send things from any calendar</summary>
+      <p style="font-size:14px;color:#4d535e;margin:8px 0 6px;">Create a calendar event anywhere (your phone, work laptop…) with one of these titles, and the Portal hides it from the calendar and routes it instead:</p>
+      <ol>
+        <li><code>todo: pick up dry cleaning</code> → the "To-Do" list</li>
+        <li><code>groceries: oat milk</code> → the "Groceries" list</li>
+        <li><code>chore: Chani water the plants</code> → a one-time chore on the event's date — a family member's name in the text assigns it to them</li>
+      </ol>
+      <p style="font-size:13px;color:#737983;margin:6px 0 2px;">Typos are forgiven ("groceres:" still finds Groceries), lists are created automatically if they don't exist, and each event is processed once — it stays in your real calendar as a record. The Portal sees it on its next feed sync (within ~15 min).</p>
+      <p style="font-size:14px;color:#4d535e;margin:8px 0 2px;"><strong>Even better:</strong> add a dedicated <em>Inbox</em> calendar (see "Add a calendar"). In an Inbox, no prefixes are needed — plain phrases like <code>add oat milk to groceries</code>, <code>buy batteries</code>, or <code>remind Chani to water the plants</code> just work, and nothing from it ever shows on the board.</p>
+    </details>
+    <details>
       <summary>Good to know</summary>
       <ol>
         <li>These links give read-only access to the calendar — treat them like passwords and only paste them here.</li>
@@ -303,7 +478,7 @@ function render(){
     <div class="cal-row">
       <div class="dot" style="background:${esc(f.color)}"></div>
       <div class="grow">
-        <div class="cal-name">${esc(f.name)}</div>
+        <div class="cal-name">${esc(f.name)}${f.kind === 'inbox' ? ' <span style="font-size:12px;color:#f0584c;">📥 inbox</span>' : ''}</div>
         <div class="cal-url">${esc(f.url)}</div>
       </div>
       <button class="del" onclick="removeCal(${i})" aria-label="Remove">✕</button>
@@ -351,7 +526,7 @@ async function addCal(){
     const r = await fetch('/api/validate', {method:'POST', body: JSON.stringify({url})});
     const body = await r.json();
     if (!r.ok) throw new Error(body.error || 'check failed');
-    feeds.push({name, color, url});
+    feeds.push({name, color, url, kind: document.getElementById('calKind').value});
     await save();
     document.getElementById('name').value = '';
     document.getElementById('url').value = '';
@@ -556,14 +731,22 @@ scaleSlider.addEventListener('change', async () => {
 });
 
 // ----- tabs -----
+let currentTabName = 'calendar';
 function showTab(name){
+  currentTabName = name;
   document.querySelectorAll('[data-tab]').forEach(el =>
     el.style.display = el.dataset.tab === name ? '' : 'none');
+  // AI cards additionally require AI to be ready — tab logic wins otherwise.
+  if (!aiState.enabled || !aiState.hasKey) {
+    document.getElementById('aiImportCard').style.display = 'none';
+    document.getElementById('aiMealCard').style.display = 'none';
+  }
   document.querySelectorAll('[data-tabbtn]').forEach(b =>
     b.className = b.dataset.tabbtn === name ? '' : 'ghost');
   if (name === 'lists') loadListsP();
   if (name === 'family') loadMembers();
   if (name === 'chores') loadChores();
+  if (name === 'meals') loadMeals();
 }
 
 // ----- shared lists -----
@@ -577,9 +760,14 @@ function renderListsP(){
   }
   box.innerHTML = pageLists.map(l => {
     const items = l.items.slice().sort((a,b)=>(a.done?1:0)-(b.done?1:0));
+    const gBtn = !writers.google || !writers.google.connected ? ''
+      : l.gtasksId
+        ? `<button class="ghost" style="padding:6px 10px;font-size:13px;" onclick="gtasksAct('unlink','${esc(l.id)}')">⇄ Synced</button>`
+        : `<button class="ghost" style="padding:6px 10px;font-size:13px;" onclick="gtasksAct('link','${esc(l.id)}')">⇄ Google Tasks</button>`;
     return `<div style="margin-bottom:18px;">
       <div style="display:flex;align-items:center;gap:8px;">
         <strong style="flex:1;font-size:17px;">${esc(l.name)}</strong>
+        ${gBtn}
         <button class="ghost" style="padding:6px 10px;font-size:13px;" onclick="listAct({action:'clearDone',listId:'${esc(l.id)}'})">Clear done</button>
         <button class="del" onclick="listAct({action:'deleteList',listId:'${esc(l.id)}'})">✕</button>
       </div>
@@ -626,10 +814,53 @@ function addItemP(listId){
   inp.value = '';
 }
 
+async function gtasksAct(op, listId){
+  show('listsMsg', op === 'link' ? 'Linking with Google Tasks…' : 'Unlinking…', true);
+  try {
+    const r = await fetch('/api/gtasks/' + op, {method:'POST', body: JSON.stringify({listId})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    pageLists = body; renderListsP();
+    show('listsMsg', op === 'link' ? '✓ Two-way sync with Google Tasks is on' : 'Sync removed', true);
+  } catch(e){ show('listsMsg', e.message, false); }
+}
+
 // ----- chores & stars -----
 const DOW = [{n:'S',v:1},{n:'M',v:2},{n:'T',v:3},{n:'W',v:4},{n:'T',v:5},{n:'F',v:6},{n:'S',v:7}];
 let choreDays = [2,3,4,5,6]; // default school days
 let choreStatus = null;
+
+const CHORE_BANK = [
+  ['🛏️','Make the bed'],['🦷','Brush teeth'],['📚','Homework'],['🐕','Feed the pet'],
+  ['🍽️','Set the table'],['🥣','Clear the dishes'],['🧺','Put laundry away'],
+  ['🧸','Tidy your room'],['🗑️','Take out the trash'],['🚿','Shower'],
+  ['🎵','Practice music'],['🪴','Water the plants']];
+
+function renderChoreBank(){
+  const learned = (choreStatus && choreStatus.suggestions) || [];
+  const picks = learned.map(s => [s.icon, s.title]);
+  CHORE_BANK.forEach(([icon, title]) => {
+    if (!picks.some(([, t]) => t.toLowerCase() === title.toLowerCase())) picks.push([icon, title]);
+  });
+  document.getElementById('choreBank').innerHTML = picks.map(([icon, title], i) =>
+    `<button class="ghost" style="padding:8px 12px;font-size:13px;${i < learned.length ? 'border:1px solid #f0584c;' : ''}"
+             onclick="pickBank('${icon}', ${JSON.stringify(title)})">${icon} ${esc(title)}</button>`).join('');
+}
+function pickBank(icon, title){
+  document.getElementById('chIcon').value = icon;
+  document.getElementById('chTitle').value = title;
+}
+
+function renderChoreSchedule(){
+  const once = document.getElementById('chMode').value === 'once';
+  document.getElementById('chDays').style.display = once ? 'none' : 'flex';
+  const d = document.getElementById('chDate');
+  d.style.display = once ? '' : 'none';
+  if (once && !d.value) {
+    const now = new Date();
+    d.value = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  }
+}
 
 function renderDayChips(){
   document.getElementById('chDays').innerHTML = DOW.map(d =>
@@ -670,7 +901,8 @@ function renderChores(){
   // Chore list
   const dayNames = ['','Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   document.getElementById('choreBox').innerHTML = (st.chores || []).map(c => {
-    const days = (c.days || []).length === 7 ? 'Every day'
+    const days = c.oneTime ? ('One time · ' + (c.date || ''))
+      : (c.days || []).length === 7 ? 'Every day'
       : (c.days || []).map(d => dayNames[d]).join(' ');
     return `<div class="cal-row">
       <span style="font-size:20px;">${esc(c.icon || '⭐')}</span>
@@ -682,13 +914,28 @@ function renderChores(){
     </div>`;
   }).join('') || '<div class="empty">No chores yet</div>';
 
-  // Member select for the add form
-  document.getElementById('chMember').innerHTML =
-    (st.members || []).map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+  // Member chips for the add form — tap to include several kids at once.
+  if (!choreSelMembers.length && st.members && st.members.length)
+    choreSelMembers = [st.members[0].id];
+  document.getElementById('chMembers').innerHTML = (st.members || []).map(m => {
+    const on = choreSelMembers.includes(m.id);
+    return `<button class="${on ? '' : 'ghost'}" style="padding:8px 14px;${on ? 'background:' + esc(m.color) + ';' : ''}"
+      onclick="toggleChoreMember('${esc(m.id)}')">${esc(m.name)}</button>`;
+  }).join('');
+}
+
+let choreSelMembers = [];
+function toggleChoreMember(id){
+  choreSelMembers = choreSelMembers.includes(id)
+    ? choreSelMembers.filter(x => x !== id) : [...choreSelMembers, id];
+  renderChores();
 }
 
 async function loadChores(){
-  try { choreStatus = await (await fetch('/api/chores')).json(); renderChores(); renderDayChips(); }
+  try {
+    choreStatus = await (await fetch('/api/chores')).json();
+    renderChores(); renderDayChips(); renderChoreBank(); renderChoreSchedule();
+  }
   catch(e){ show('choreMsg', e.message, false); }
 }
 
@@ -704,24 +951,198 @@ async function choreAct(action){
 function addChore(){
   const title = document.getElementById('chTitle').value.trim();
   if (!title) return show('choreMsg', 'Give the chore a name', false);
-  if (!choreDays.length) return show('choreMsg', 'Pick at least one day', false);
-  choreAct({action:'addChore', title,
+  if (!choreSelMembers.length) return show('choreMsg', 'Pick at least one person', false);
+  const once = document.getElementById('chMode').value === 'once';
+  const action = {action:'addChore', title,
     icon: document.getElementById('chIcon').value,
-    memberId: document.getElementById('chMember').value,
-    days: choreDays});
+    memberIds: choreSelMembers};
+  if (once) {
+    action.oneTime = true;
+    action.date = document.getElementById('chDate').value;
+    if (!action.date) return show('choreMsg', 'Pick a date', false);
+  } else {
+    if (!choreDays.length) return show('choreMsg', 'Pick at least one day', false);
+    action.days = choreDays;
+  }
+  choreAct(action);
   document.getElementById('chTitle').value = '';
   show('choreMsg', '✓ Added', true);
+}
+
+// ----- meals -----
+const SLOTS = [['breakfast','🍳'],['lunch','🥪'],['dinner','🍝'],['snack','🍎']];
+let mealState = {plan:[], recipes:[]};
+
+function mealText(date, slot){
+  const e = mealState.plan.find(p => p.date === date && p.slot === slot);
+  return e ? e.text : '';
+}
+
+function renderMeals(){
+  const days = [];
+  const now = new Date();
+  for (let i = 0; i < 7; i++){
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    days.push(d);
+  }
+  document.getElementById('mealPlan').innerHTML = days.map(d => {
+    const date = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const label = d.toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric'});
+    return `<div style="margin-bottom:14px;">
+      <strong style="font-size:15px;">${esc(label)}</strong>
+      ${SLOTS.map(([slot, emoji]) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+          <span style="width:26px;text-align:center;">${emoji}</span>
+          <input type="text" value="${esc(mealText(date, slot))}" list="recipeNames" autocomplete="off"
+                 placeholder="${slot}" style="margin:0;padding:8px 12px;"
+                 onchange="setMeal('${date}','${slot}',this.value)">
+        </div>`).join('')}
+    </div>`;
+  }).join('') + `<datalist id="recipeNames">${mealState.recipes.map(r => `<option value="${esc(r.title)}">`).join('')}</datalist>`;
+
+  document.getElementById('recipeBox').innerHTML = mealState.recipes.map(r => `
+    <details style="border-bottom:1px solid #efece4;padding:6px 0;">
+      <summary style="display:flex;align-items:center;gap:8px;">
+        <span class="grow" style="flex:1;font-weight:600;">${esc(r.title)}</span>
+        <button class="del" onclick="event.preventDefault();mealAct({action:'deleteRecipe',recipeId:'${esc(r.id)}'})">✕</button>
+      </summary>
+      <div style="font-size:14px;color:#4d535e;white-space:pre-wrap;margin:6px 0 4px;">${esc(r.ingredients || '')}${r.ingredients && r.steps ? '\n\n' : ''}${esc(r.steps || '')}</div>
+    </details>`).join('') || '<div class="empty">No recipes yet</div>';
+}
+
+async function loadMeals(){
+  try { mealState = await (await fetch('/api/meals')).json(); renderMeals(); }
+  catch(e){ show('mealMsg', e.message, false); }
+}
+
+async function mealAct(action){
+  try {
+    const r = await fetch('/api/meals', {method:'POST', body: JSON.stringify(action)});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    mealState = body; renderMeals();
+  } catch(e){ show('mealMsg', e.message, false); }
+}
+
+function setMeal(date, slot, text){
+  // Link a recipe when the text matches one by name.
+  const match = mealState.recipes.find(r => r.title.toLowerCase() === text.trim().toLowerCase());
+  mealAct({action:'setMeal', date, slot, text: text.trim(), recipeId: match ? match.id : ''});
+}
+
+function addRecipe(){
+  const title = document.getElementById('rcTitle').value.trim();
+  if (!title) return show('recipeMsg', 'Give the recipe a name', false);
+  mealAct({action:'addRecipe', title,
+    ingredients: document.getElementById('rcIngredients').value,
+    steps: document.getElementById('rcSteps').value});
+  document.getElementById('rcTitle').value = '';
+  document.getElementById('rcIngredients').value = '';
+  document.getElementById('rcSteps').value = '';
+  show('recipeMsg', '✓ Added', true);
+}
+
+// ----- kid lock -----
+function applyPin(st){
+  document.getElementById('pinStatus').textContent = st.enabled
+    ? 'Kid lock is ON — the board asks for the PIN before edits.'
+    : 'Kid lock is off.';
+}
+async function loadPin(){
+  try { applyPin(await (await fetch('/api/pin')).json()); } catch(e){}
+}
+async function setPin(){
+  const pin = document.getElementById('pinInput').value.trim();
+  if (!/^\d{4}$/.test(pin)) return show('pinMsg', 'Enter exactly 4 digits', false);
+  try {
+    const r = await fetch('/api/pin', {method:'POST', body: JSON.stringify({pin})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    applyPin(body);
+    document.getElementById('pinInput').value = '';
+    show('pinMsg', '✓ PIN set', true);
+  } catch(e){ show('pinMsg', e.message, false); }
+}
+async function clearPin(){
+  try {
+    const r = await fetch('/api/pin', {method:'POST', body: JSON.stringify({pin:''})});
+    applyPin(await r.json());
+    show('pinMsg', 'Kid lock removed', true);
+  } catch(e){ show('pinMsg', e.message, false); }
+}
+
+// ----- weather -----
+let wxState = {unit:'f'};
+
+function applyWx(st){
+  wxState = st;
+  document.getElementById('wxStatus').innerHTML = st.configured
+    ? `Showing weather for <strong>${esc(st.label)}</strong>${st.summary ? ' — ' + esc(st.summary) : ''} <button class="del" style="font-size:14px;" onclick="wxClear()">remove</button>`
+    : 'No location set — search below to show forecasts on the board.';
+  document.getElementById('wxF').className = st.unit === 'f' ? '' : 'ghost';
+  document.getElementById('wxC').className = st.unit === 'c' ? '' : 'ghost';
+}
+
+async function loadWx(){
+  try { applyWx(await (await fetch('/api/weather')).json()); } catch(e){}
+}
+
+async function wxSearch(){
+  const q = document.getElementById('wxQ').value.trim();
+  if (!q) return;
+  show('wxMsg', 'Searching…', true);
+  try {
+    const r = await fetch('/api/weather/search', {method:'POST', body: JSON.stringify({q})});
+    const results = await r.json();
+    if (!r.ok) throw new Error(results.error || 'search failed');
+    document.getElementById('wxResults').innerHTML = results.length
+      ? results.map(x => `<button class="ghost" style="width:100%;margin-bottom:6px;text-align:left;"
+          onclick='wxSet(${x.lat},${x.lon},${JSON.stringify(x.label)})'>📍 ${esc(x.label)}</button>`).join('')
+      : '<div class="empty">No matches</div>';
+    show('wxMsg', '', true);
+  } catch(e){ show('wxMsg', e.message, false); }
+}
+
+async function wxSet(lat, lon, label){
+  try {
+    const r = await fetch('/api/weather/set', {method:'POST',
+      body: JSON.stringify({lat, lon, label, unit: wxState.unit || 'f'})});
+    applyWx(await r.json());
+    document.getElementById('wxResults').innerHTML = '';
+    document.getElementById('wxQ').value = '';
+    show('wxMsg', '✓ Weather is on', true);
+  } catch(e){ show('wxMsg', e.message, false); }
+}
+
+async function wxUnit(u){
+  try {
+    const r = await fetch('/api/weather/set', {method:'POST', body: JSON.stringify({unit: u})});
+    applyWx(await r.json());
+  } catch(e){ show('wxMsg', e.message, false); }
+}
+
+async function wxClear(){
+  try { applyWx(await (await fetch('/api/weather/clear', {method:'POST'})).json()); }
+  catch(e){ show('wxMsg', e.message, false); }
 }
 
 // ----- family members -----
 let members = [];
 
 function renderMembers(){
+  // PINs never come over the wire — the server only says hasPin. The field
+  // stays empty unless you type a NEW pin; only then does the save include it.
   document.getElementById('membersBox').innerHTML = members.map((m,i) => `
     <div class="cal-row">
       <input type="color" value="${esc(m.color)}" onchange="members[${i}].color=this.value">
       <input type="text" value="${esc(m.name)}" autocomplete="off" style="margin:0;flex:1;"
              oninput="members[${i}].name=this.value">
+      <input type="text" value="${esc(typeof m.pin === 'string' ? m.pin : '')}"
+             placeholder="${m.hasPin && typeof m.pin !== 'string' ? '••••' : 'PIN'}" maxlength="4" inputmode="numeric"
+             autocomplete="off" style="margin:0;width:74px;" title="Optional: only this person (or a parent) can check off their chores. Leave as •••• to keep the current PIN."
+             oninput="members[${i}].pin=this.value">
+      ${m.hasPin ? `<button class="del" title="Remove PIN" style="font-size:11px;"
+             onclick="members[${i}].pin='';members[${i}].hasPin=false;renderMembers()">PIN✕</button>` : ''}
       <button class="del" onclick="members.splice(${i},1);renderMembers()">✕</button>
     </div>`).join('') || '<div class="empty">No members yet</div>';
 }
@@ -747,12 +1168,538 @@ async function saveMembers(){
   } catch(e){ show('memMsg', e.message, false); }
 }
 
+// ----- AI (Gemini) -----
+let aiState = {enabled:false, hasKey:false, models:[]};
+
+function applyAi(st){
+  aiState = st;
+  document.getElementById('aiToggle').checked = st.enabled;
+  document.getElementById('aiConfig').style.display = st.enabled ? 'block' : 'none';
+  const ready = st.enabled && st.hasKey;
+  document.getElementById('aiRecipeRow').style.display = ready ? 'flex' : 'none';
+  if (ready) aiMealDays();
+  showTab(currentTabName); // re-apply tab visibility with the new AI state
+  const row = document.getElementById('aiModelRow');
+  if (st.hasKey && st.models.length) {
+    row.style.display = 'block';
+    document.getElementById('aiModel').innerHTML = st.models.map(m =>
+      `<option value="${esc(m)}"${m === st.model ? ' selected' : ''}>${esc(m)}</option>`).join('');
+  } else row.style.display = 'none';
+}
+
+async function loadAi(){
+  try { applyAi(await (await fetch('/api/ai')).json()); } catch(e){}
+}
+
+async function aiPost(body, msgId){
+  const r = await fetch('/api/ai', {method:'POST', body: JSON.stringify(body)});
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'failed');
+  applyAi(data);
+  return data;
+}
+
+async function aiSetEnabled(){
+  try { await aiPost({enabled: document.getElementById('aiToggle').checked}); }
+  catch(e){ show('aiMsg', e.message, false); }
+}
+
+async function aiSaveKey(){
+  const key = document.getElementById('aiKey').value.trim();
+  if (!key) return show('aiMsg', 'Paste the API key first', false);
+  show('aiMsg', 'Checking the key with Google…', true);
+  try {
+    const st = await aiPost({key});
+    document.getElementById('aiKey').value = '';
+    show('aiMsg', `✓ Key works — ${st.models.length} models available, using ${st.model}`, true);
+  } catch(e){ show('aiMsg', e.message, false); }
+}
+
+async function aiSetModel(){
+  try { await aiPost({model: document.getElementById('aiModel').value}); }
+  catch(e){ show('aiMsg', e.message, false); }
+}
+
+let aiProps = null;
+
+async function aiImport(){
+  const text = document.getElementById('aiText').value.trim();
+  const file = document.getElementById('aiPhoto').files[0];
+  if (!text && !file) return show('aiImpMsg', 'Paste some text or attach a photo', false);
+  show('aiImpMsg', '✨ Reading…', true);
+  const body = {text};
+  if (file) {
+    const b64 = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result.split(',')[1]);
+      fr.onerror = rej;
+      fr.readAsDataURL(file);
+    });
+    body.image = b64;
+    body.mime = file.type || 'image/jpeg';
+  }
+  try {
+    const r = await fetch('/api/ai/import', {method:'POST', body: JSON.stringify(body)});
+    const props = await r.json();
+    if (!r.ok) throw new Error(props.error || 'failed');
+    aiProps = props;
+    renderProposals();
+    const n = props.events.length + props.listItems.length + props.chores.length;
+    show('aiImpMsg', n ? `Found ${n} things — untick anything you don't want, then apply` : 'Nothing actionable found', n > 0);
+  } catch(e){ show('aiImpMsg', e.message, false); }
+}
+
+function renderProposals(){
+  const p = aiProps;
+  const row = (kind, i, label) => `
+    <label class="cal-row" style="cursor:pointer;">
+      <input type="checkbox" checked data-kind="${kind}" data-i="${i}" style="width:20px;height:20px;flex:none;">
+      <div class="grow">${label}</div>
+    </label>`;
+  let html = '';
+  p.events.forEach((e, i) => html += row('events', i,
+    `📅 <strong>${esc(e.title)}</strong> · ${esc(e.date)}${e.allDay || !e.time ? ' · all day' : ' · ' + esc(e.time)}`));
+  p.listItems.forEach((li, i) => html += row('listItems', i,
+    `📝 <strong>${esc(li.text)}</strong> → ${esc(li.list)}`));
+  p.chores.forEach((c, i) => html += row('chores', i,
+    `⭐ <strong>${esc(c.title)}</strong>${c.member ? ' · ' + esc(c.member) : ''} · ${esc(c.date || 'today')}`));
+  if (html) html += `<button style="width:100%;margin-top:8px;" onclick="aiApply()">Add the ticked items</button>`;
+  document.getElementById('aiProposals').innerHTML = html;
+}
+
+async function aiApply(){
+  const picked = {events:[], listItems:[], chores:[]};
+  document.querySelectorAll('#aiProposals input[type=checkbox]:checked').forEach(cb =>
+    picked[cb.dataset.kind].push(aiProps[cb.dataset.kind][cb.dataset.i]));
+  show('aiImpMsg', 'Adding…', true);
+  try {
+    const r = await fetch('/api/ai/apply', {method:'POST', body: JSON.stringify(picked)});
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.error || 'failed');
+    document.getElementById('aiProposals').innerHTML = '';
+    document.getElementById('aiText').value = '';
+    document.getElementById('aiPhoto').value = '';
+    const errs = res.errors.length ? ` (${res.errors.length} failed: ${res.errors[0]})` : '';
+    show('aiImpMsg', `✓ Added ${res.applied} item${res.applied === 1 ? '' : 's'}${errs}`, res.errors.length === 0);
+  } catch(e){ show('aiImpMsg', e.message, false); }
+}
+
+function aiMealDays(){
+  const sel = document.getElementById('aiMealDay');
+  if (sel.options.length) return;
+  const now = new Date();
+  for (let i = 0; i < 7; i++){
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    const val = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow'
+      : d.toLocaleDateString(undefined, {weekday:'long'});
+    sel.insertAdjacentHTML('beforeend', `<option value="${val}">${label}</option>`);
+  }
+}
+
+async function aiPlanMeal(){
+  const dish = document.getElementById('aiMealDish').value.trim();
+  if (!dish) return show('aiMealMsg', 'Name a dish first', false);
+  show('aiMealMsg', '✨ Writing the recipe and planning it…', true);
+  try {
+    const r = await fetch('/api/ai/meal', {method:'POST', body: JSON.stringify({
+      dish,
+      date: document.getElementById('aiMealDay').value,
+      slot: document.getElementById('aiMealSlot').value,
+      groceries: document.getElementById('aiMealGroceries').checked})});
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.error || 'failed');
+    document.getElementById('aiMealDish').value = '';
+    loadMeals();
+    show('aiMealMsg', `✓ "${res.title}" is planned${res.groceriesAdded ? ` — shopping list "${res.listName}" created with ${res.groceriesAdded} items (Lists tab)` : ''}`, true);
+  } catch(e){ show('aiMealMsg', e.message, false); }
+}
+
+async function aiRecipe(){
+  const dish = document.getElementById('aiDish').value.trim();
+  if (!dish) return show('recipeMsg', 'Name a dish first', false);
+  show('recipeMsg', '✨ Writing the recipe…', true);
+  try {
+    const r = await fetch('/api/ai/recipe', {method:'POST', body: JSON.stringify({dish})});
+    const rec = await r.json();
+    if (!r.ok) throw new Error(rec.error || 'failed');
+    document.getElementById('rcTitle').value = rec.title;
+    document.getElementById('rcIngredients').value = rec.ingredients;
+    document.getElementById('rcSteps').value = rec.steps;
+    show('recipeMsg', '✓ Review below, then Add recipe', true);
+  } catch(e){ show('recipeMsg', e.message, false); }
+}
+
+// ===================== setup wizard =====================
+let wizStep = 0;
+let wizMembers = [];
+const WIZ_PALETTE = ['#f0584c','#2bb3a3','#f2a93b','#4fa3e3','#8e7cc3','#e87ea1'];
+
+const WIZ_STEPS = [
+  { kicker: 'WELCOME', title: 'Let’s turn this Portal into your family hub',
+    body: () => `
+      <div class="wiz-emoji">👋</div>
+      <div class="wiz-sub">In about three minutes we'll connect your family's calendars,
+      set up the people and the look, and switch on the always-on board.
+      Everything here can be changed later — and you can skip any step.</div>
+      <div class="card">
+        <strong>What you'll set up</strong>
+        <ol style="margin:8px 0 2px;">
+          <li>Who's in the family (names &amp; colors)</li>
+          <li>The calendars to show</li>
+          <li>Adding events from the Portal (optional)</li>
+          <li>Weather, screensaver and display size</li>
+        </ol>
+      </div>`,
+    next: 'Get started' },
+
+  { kicker: 'STEP 1 · FAMILY', title: 'Who’s in the family?',
+    body: () => `
+      <div class="wiz-sub">Each person gets a color that follows them everywhere —
+      their events, their chores, their stars. (Later, on the Family tab, you can
+      also give each kid an optional PIN so only they can check off their chores.)</div>
+      <div class="card" id="wizMembersBox"></div>
+      <button class="ghost" style="width:100%;" onclick="wizAddMemberRow()">+ Add another person</button>`,
+    onShow: async () => {
+      try { wizMembers = await (await fetch('/api/members')).json(); } catch(e){ wizMembers = []; }
+      if (!wizMembers.length) wizMembers = [{name:'', color: WIZ_PALETTE[0]}];
+      wizRenderMembers();
+    },
+    onNext: async () => {
+      const keep = wizMembers.filter(m => m.name.trim());
+      if (keep.length) await fetch('/api/members', {method:'POST', body: JSON.stringify(keep)});
+      return true;
+    } },
+
+  { kicker: 'STEP 2 · CALENDARS', title: 'Connect the calendars',
+    body: () => `
+      <div class="wiz-sub">The board shows everyone's events together. Paste each person's
+      calendar link — the Portal checks it instantly.</div>
+      <div class="card">
+        <div id="wizCalList"></div>
+        <input type="text" id="wizCalName" placeholder="Whose calendar? e.g. Mom" autocomplete="off">
+        <input type="url" id="wizCalUrl" placeholder="Calendar link (https:// or webcal://)" autocomplete="off">
+        <div class="row2"><label>Color</label><input type="color" id="wizCalColor" value="#4fa3e3"></div>
+        <button style="width:100%;" onclick="wizAddCal()">Add this calendar</button>
+        <div id="wizCalMsg" class="msgline"></div>
+      </div>
+      <div class="card">
+        <details><summary>Where do I find the link?</summary>
+          <ol>
+            <li><strong>Google:</strong> on a computer, calendar.google.com → Settings →
+            the calendar → Integrate calendar → copy <em>"Secret address in iCal format"</em>.</li>
+            <li><strong>Apple/iCloud:</strong> iPhone Calendar app → Calendars → ⓘ →
+            turn on <em>Public Calendar</em> → Share Link → Copy.</li>
+            <li>Treat these links like passwords — they give read access.</li>
+          </ol>
+        </details>
+      </div>`,
+    onShow: async () => { await wizRefreshCals(); },
+    nextLabel: () => 'Continue' },
+
+  { kicker: 'STEP 3 · ADD EVENTS', title: 'Want to add events from the Portal?',
+    body: () => `
+      <div class="wiz-sub">Optional: connect iCloud once and anyone can add events from the
+      board or this page — they appear in the real calendar on everyone's phones.</div>
+      <div class="card">
+        <strong>iCloud</strong>
+        <div id="wizIcBox"></div>
+      </div>
+      <div class="wiz-sub" style="font-size:13px;">Prefer Google Calendar? That setup has a few
+      more steps — find it later under <strong>Settings → Two-way sync</strong>.
+      This is completely skippable: the board works great read-only.</div>`,
+    onShow: () => wizRenderIcloud(),
+    next: 'Continue' },
+
+  { kicker: 'STEP 4 · WEATHER', title: 'Weather on the board?',
+    body: () => `
+      <div class="wiz-sub">Shows current conditions, daily highs on the week view, and a
+      forecast on each event. Free, no account needed.</div>
+      <div class="card">
+        <div class="row2">
+          <input type="text" id="wizWxQ" placeholder="City or ZIP code" autocomplete="off"
+                 onkeydown="if(event.key==='Enter')wizWxSearch()">
+          <button class="ghost" style="flex:none;" onclick="wizWxSearch()">Search</button>
+        </div>
+        <div id="wizWxResults"></div>
+        <div id="wizWxMsg" class="msgline"></div>
+      </div>`,
+    next: 'Continue' },
+
+  { kicker: 'STEP 5 · CHORES & LISTS', title: 'The bits kids actually love',
+    body: () => `
+      <div class="wiz-emoji">⭐</div>
+      <div class="card">
+        <strong>Chores &amp; stars</strong>
+        <div class="wiz-sub" style="margin:6px 0 0;">The board's <strong>Chores</strong> tab
+        shows each kid's column. They tap a card when it's done and earn a star toward their
+        weekly goal. Add chores with the <strong>+ Add</strong> button on the board (it has a
+        bank of ready-made ones, repeating or one-time, for one kid or several) or from the
+        Chores tab here. Long-press a card on the board to remove it.</div>
+      </div>
+      <div class="card">
+        <strong>Lists &amp; meals</strong>
+        <div class="wiz-sub" style="margin:6px 0 0;">Groceries, to-dos, packing — the
+        <strong>Lists</strong> tab works on the board and on this page from any phone,
+        and any list can sync two-way with <strong>Google Tasks</strong> for editing
+        away from home. The <strong>Meals</strong> tab plans the week's breakfasts
+        through snacks, with a recipe box behind it. Pro move: a calendar event titled
+        <code>groceries: oat milk</code> from anywhere lands straight on the list.</div>
+      </div>
+      <div class="card">
+        <strong>Parents stay in charge</strong>
+        <div class="wiz-sub" style="margin:6px 0 0;">A <strong>kid lock</strong> PIN
+        (Settings) gates adding and deleting things on the touchscreen, and Settings
+        also lets you switch whole tabs off if your family doesn't use them.</div>
+      </div>`,
+    next: 'Continue' },
+
+  { kicker: 'STEP 6 · AI (OPTIONAL)', title: 'Add superpowers with a Gemini key',
+    body: () => `
+      <div class="wiz-sub">Optional: a free Google AI key unlocks
+      <strong>Smart Import</strong> (photograph a school flyer → events, lists and chores,
+      confirmed by you), <strong>✨ Plan a meal</strong> (recipe + menu slot + its own
+      shopping list in one tap), <strong>AI recipes</strong>, and smarter understanding
+      of inbox-calendar commands — typos and all. Without a key, all of it stays
+      completely hidden and everything else works normally.</div>
+      <div class="card">
+        <input type="text" id="wizAiKey" placeholder="Paste a Google AI API key (AIza…)" autocomplete="off">
+        <div style="font-size:13px;color:#737983;">Free at
+          <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a>
+          → Get API key. Stored on the Portal only. Leave empty to skip.</div>
+        <div id="wizAiMsg" class="msgline"></div>
+      </div>`,
+    onNext: async () => {
+      const key = document.getElementById('wizAiKey').value.trim();
+      if (key) {
+        const r = await fetch('/api/ai', {method:'POST', body: JSON.stringify({enabled:true, key})});
+        if (!r.ok) {
+          show('wizAiMsg', (await r.json()).error || 'key check failed', false);
+          throw new Error('stay');
+        }
+      }
+      return true;
+    } },
+
+  { kicker: 'STEP 7 · THE SCREEN', title: 'Make it an always-on display',
+    body: () => `
+      <div class="wiz-sub">With this on, the calendar takes over whenever the Portal idles —
+      a true wall calendar. Tap ✕ on the board any time to get back to the launcher.</div>
+      <div class="card">
+        <label style="display:flex;align-items:center;gap:10px;font-size:15px;">
+          <input type="checkbox" id="wizSaver" style="width:22px;height:22px;flex:none;" checked>
+          Show the calendar whenever the Portal is idle
+        </label>
+      </div>
+      <div class="card">
+        <strong>Display size <span id="wizScaleVal" style="color:#f0584c;"></span></strong>
+        <div class="wiz-sub" style="margin:4px 0 0;font-size:13px;">Watch the Portal while you
+        drag — it zooms live. 100% suits the Portal+; 10″ Portals like 110–125%.</div>
+        <input type="range" id="wizScale" min="70" max="160" step="5"
+               style="width:100%;margin-top:10px;accent-color:#f0584c;">
+      </div>`,
+    onShow: async () => {
+      try {
+        const sc = await (await fetch('/api/scale')).json();
+        const slider = document.getElementById('wizScale');
+        slider.value = Math.round(sc.scale * 100);
+        document.getElementById('wizScaleVal').textContent = slider.value + '%';
+        slider.addEventListener('input', () => {
+          document.getElementById('wizScaleVal').textContent = slider.value + '%';
+          pumpScalePreview(slider.value);
+        });
+        slider.addEventListener('change', () =>
+          fetch('/api/scale', {method:'POST', body: JSON.stringify({scale: slider.value/100})}));
+        const sv = await (await fetch('/api/screensaver')).json();
+        document.getElementById('wizSaver').checked = sv.enabled;
+      } catch(e){}
+    },
+    onNext: async () => {
+      try {
+        await fetch('/api/screensaver', {method:'POST',
+          body: JSON.stringify({enabled: document.getElementById('wizSaver').checked})});
+      } catch(e){}
+      return true;
+    } },
+
+  { kicker: 'ALL SET', title: 'Your family hub is ready 🎉',
+    body: () => `
+      <div class="wiz-emoji">✨</div>
+      <div class="card">
+        <strong>Three things worth knowing</strong>
+        <ol style="margin:8px 0 2px;">
+          <li><strong>Magic words:</strong> a calendar event titled
+          <code>groceries: oat milk</code> or <code>chore: water the plants</code>
+          goes to the right place instead of the calendar.</li>
+          <li><strong>Chores &amp; stars, lists and meals</strong> each have a tab on the
+          board and here — switch any of them off under Settings.</li>
+          <li><strong>Add this page to your home screen</strong> (Share → Add to Home
+          Screen) and it opens like an app.</li>
+        </ol>
+      </div>`,
+    next: 'Finish' },
+];
+
+function wizRenderDots(){
+  document.getElementById('wizDots').innerHTML = WIZ_STEPS.map((_, i) =>
+    `<div class="wiz-dot${i === wizStep ? ' on' : ''}"></div>`).join('');
+}
+
+function renderWiz(){
+  const s = WIZ_STEPS[wizStep];
+  wizRenderDots();
+  document.getElementById('wizBody').innerHTML =
+    `<div class="wiz-kicker">${s.kicker}</div><div class="wiz-title">${s.title}</div>` + s.body();
+  const nav = document.getElementById('wizNav');
+  nav.innerHTML =
+    (wizStep > 0 ? `<button class="ghost" style="flex:0 0 110px;" onclick="wizGo(-1)">Back</button>` : '') +
+    `<button onclick="wizGo(1)">${s.next || 'Continue'}</button>`;
+  if (s.onShow) s.onShow();
+}
+
+async function wizGo(dir){
+  if (dir > 0) {
+    const s = WIZ_STEPS[wizStep];
+    if (s.onNext) {
+      try { await s.onNext(); }
+      catch(e){ return; } // validation failed — stay on this step
+    }
+    if (wizStep === WIZ_STEPS.length - 1) return exitWizard();
+  }
+  wizStep = Math.max(0, wizStep + dir);
+  renderWiz();
+  document.getElementById('wizard').scrollTop = 0;
+}
+
+function showWizard(){
+  wizStep = 0;
+  document.getElementById('wizard').style.display = 'flex';
+  renderWiz();
+}
+
+async function exitWizard(){
+  try { await fetch('/api/setup', {method:'POST', body:'{}'}); } catch(e){}
+  document.getElementById('wizard').style.display = 'none';
+  load(); loadSaver(); loadWriters(); loadScale(); loadWx(); loadPin();
+}
+
+async function maybeStartWizard(){
+  try {
+    if ((await (await fetch('/api/setup')).json()).fresh) showWizard();
+  } catch(e){}
+}
+
+// --- wizard step helpers ---
+function wizRenderMembers(){
+  document.getElementById('wizMembersBox').innerHTML = wizMembers.map((m,i) => `
+    <div class="cal-row">
+      <input type="color" value="${esc(m.color)}" onchange="wizMembers[${i}].color=this.value">
+      <input type="text" value="${esc(m.name)}" placeholder="Name" autocomplete="off"
+             style="margin:0;flex:1;" oninput="wizMembers[${i}].name=this.value">
+      <button class="del" onclick="wizMembers.splice(${i},1);wizRenderMembers()">✕</button>
+    </div>`).join('');
+}
+function wizAddMemberRow(){
+  wizMembers.push({name:'', color: WIZ_PALETTE[wizMembers.length % WIZ_PALETTE.length]});
+  wizRenderMembers();
+}
+
+async function wizRefreshCals(){
+  try {
+    const feeds = await (await fetch('/api/config')).json();
+    document.getElementById('wizCalList').innerHTML = feeds.map(f => `
+      <div class="cal-row">
+        <div class="dot" style="background:${esc(f.color)}"></div>
+        <div class="grow cal-name">${esc(f.name)}</div>
+        <span style="color:#2e9e4f;font-size:13px;">✓ added</span>
+      </div>`).join('');
+  } catch(e){}
+}
+async function wizAddCal(){
+  const name = document.getElementById('wizCalName').value.trim();
+  const url = normalizeUrl(document.getElementById('wizCalUrl').value);
+  const color = document.getElementById('wizCalColor').value;
+  if (!name) return show('wizCalMsg', 'Whose calendar is it?', false);
+  if (!/^https?:\/\//.test(url)) return show('wizCalMsg', 'Paste the full link (https:// or webcal://)', false);
+  show('wizCalMsg', 'Checking the link…', true);
+  try {
+    const v = await fetch('/api/validate', {method:'POST', body: JSON.stringify({url})});
+    const vb = await v.json();
+    if (!v.ok) throw new Error(vb.error || 'check failed');
+    const feeds = await (await fetch('/api/config')).json();
+    feeds.push({name, color, url, kind:'calendar'});
+    const r = await fetch('/api/config', {method:'POST', body: JSON.stringify(feeds)});
+    if (!r.ok) throw new Error((await r.json()).error || 'save failed');
+    document.getElementById('wizCalName').value = '';
+    document.getElementById('wizCalUrl').value = '';
+    show('wizCalMsg', `✓ Added — found ${vb.events} events`, true);
+    wizRefreshCals();
+  } catch(e){ show('wizCalMsg', e.message, false); }
+}
+
+async function wizRenderIcloud(){
+  let connected = false, email = '';
+  try {
+    const w = await (await fetch('/api/writers')).json();
+    connected = w.icloud.connected; email = w.icloud.email;
+  } catch(e){}
+  document.getElementById('wizIcBox').innerHTML = connected
+    ? `<div style="font-size:14px;margin-top:8px;">✓ Connected as <strong>${esc(email)}</strong></div>`
+    : `
+      <input type="text" id="wizIcEmail" placeholder="Apple ID (name@icloud.com)" autocomplete="off">
+      <input type="text" id="wizIcPass" placeholder="App-specific password (xxxx-xxxx-xxxx-xxxx)" autocomplete="off">
+      <div style="font-size:13px;color:#737983;margin-bottom:10px;">Create one at
+        <a href="https://account.apple.com" target="_blank" rel="noopener">account.apple.com</a>
+        → Sign-In and Security → App-Specific Passwords. Stored on the Portal only.</div>
+      <button class="ghost" style="width:100%;" onclick="wizConnectIcloud()">Connect iCloud</button>
+      <div id="wizIcMsg" class="msgline"></div>`;
+}
+async function wizConnectIcloud(){
+  const email = document.getElementById('wizIcEmail').value.trim();
+  const password = document.getElementById('wizIcPass').value.trim();
+  if (!email || !password) return show('wizIcMsg', 'Enter both fields (or just continue)', false);
+  show('wizIcMsg', 'Connecting…', true);
+  try {
+    const r = await fetch('/api/icloud/connect', {method:'POST', body: JSON.stringify({email, password})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    wizRenderIcloud();
+  } catch(e){ show('wizIcMsg', e.message, false); }
+}
+
+async function wizWxSearch(){
+  const q = document.getElementById('wizWxQ').value.trim();
+  if (!q) return;
+  show('wizWxMsg', 'Searching…', true);
+  try {
+    const r = await fetch('/api/weather/search', {method:'POST', body: JSON.stringify({q})});
+    const results = await r.json();
+    if (!r.ok) throw new Error(results.error || 'search failed');
+    document.getElementById('wizWxResults').innerHTML = results.map(x =>
+      `<button class="ghost" style="width:100%;margin-bottom:6px;text-align:left;"
+        onclick='wizWxSet(${x.lat},${x.lon},${JSON.stringify(x.label)})'>📍 ${esc(x.label)}</button>`).join('')
+      || '<div class="empty">No matches</div>';
+    show('wizWxMsg', '', true);
+  } catch(e){ show('wizWxMsg', e.message, false); }
+}
+async function wizWxSet(lat, lon, label){
+  try {
+    await fetch('/api/weather/set', {method:'POST', body: JSON.stringify({lat, lon, label, unit:'f'})});
+    document.getElementById('wizWxResults').innerHTML = '';
+    show('wizWxMsg', '✓ Weather is on for ' + label, true);
+  } catch(e){ show('wizWxMsg', e.message, false); }
+}
+
 document.querySelectorAll('.selfurl').forEach(e => e.textContent = location.host);
+maybeStartWizard();
 showTab('calendar');
 load();
 loadSaver();
 loadWriters();
 loadScale();
+loadWx();
+loadPin();
+loadAi();
 </script>
 </body>
 </html>

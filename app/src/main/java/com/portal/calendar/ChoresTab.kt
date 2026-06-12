@@ -22,7 +22,13 @@ import kotlin.math.roundToInt
  * big tappable cards, plus a weekly star tally with a progress bar toward each
  * member's goal. Tapping a card bounces it and toggles completion (a star).
  */
-class ChoresTab(private val ctx: Context) {
+class ChoresTab(
+    private val ctx: Context,
+    private val onAddChore: () -> Unit = {},
+    private val onGate: (memberPin: String, memberName: String, action: () -> Unit) -> Unit =
+        { _, _, action -> action() },
+    private val onRemoveChore: (id: String, label: String) -> Unit = { _, _ -> }
+) {
 
     private lateinit var columnsRow: LinearLayout
     val view: LinearLayout = build()
@@ -34,26 +40,45 @@ class ChoresTab(private val ctx: Context) {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(18), dp(22), dp(16))
         }
-        root.addView(TextView(ctx).apply {
+        val head = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(TextView(ctx).apply {
             text = "TODAY'S CHORES"
             textSize = 13f
             setTextColor(ACCENT)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             letterSpacing = 0.14f
-        }, lp(bottom = dp(12)))
+        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        head.addView(TextView(ctx).apply {
+            text = "+ Add"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            background = rounded(ACCENT, 18)
+            setPadding(dp(16), dp(7), dp(16), dp(7))
+            setOnClickListener { onAddChore() }
+        })
+        root.addView(head, lp(bottom = dp(12)))
         columnsRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         root.addView(columnsRow, LinearLayout.LayoutParams(MATCH, 0, 1f))
         return root
     }
 
     fun render() {
-        val status = JSONObject(Chores.statusJson(ctx))
+        // includePins: the board's own PIN pad gates chore check-offs.
+        val status = JSONObject(Chores.statusJson(ctx, includePins = true))
         val chores = status.getJSONArray("chores")
         val doneToday = toSet(status.getJSONArray("doneToday"))
         val stars = status.getJSONObject("stars")
         val goals = status.getJSONObject("goals")
         val members = status.getJSONArray("members")
-        val today = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        val todayCal = Calendar.getInstance()
+        val todayDow = todayCal.get(Calendar.DAY_OF_WEEK)
+        val todayDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(todayCal.time)
 
         columnsRow.removeAllViews()
 
@@ -72,7 +97,7 @@ class ChoresTab(private val ctx: Context) {
         for (i in 0 until members.length()) groups[members.getJSONObject(i).optString("id")] = ArrayList()
         for (i in 0 until chores.length()) {
             val c = chores.getJSONObject(i)
-            if (!Chores.isDue(c, today)) continue
+            if (!Chores.isDueOn(c, todayDate, todayDow)) continue
             val mid = c.optString("memberId").takeIf { it in memberIds } ?: ""
             groups.getOrPut(mid) { ArrayList() }.add(c)
         }
@@ -142,8 +167,8 @@ class ChoresTab(private val ctx: Context) {
                 val card = LinearLayout(ctx).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    background = if (done) rounded(color, 14)
-                                 else roundedStroke(BG_SOFT, 14, dp(2), mix(color, Color.WHITE, 0.55f))
+                    background = if (done) rounded(color, Palette.R_ELEMENT)
+                                 else roundedStroke(BG_SOFT, Palette.R_ELEMENT, dp(2), mix(color, Color.WHITE, 0.55f))
                     setPadding(dp(14), dp(13), dp(14), dp(13))
                 }
                 card.addView(TextView(ctx).apply {
@@ -158,19 +183,31 @@ class ChoresTab(private val ctx: Context) {
                     maxLines = 2
                     ellipsize = TextUtils.TruncateAt.END
                 }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                if (c.optBoolean("oneTime")) card.addView(TextView(ctx).apply {
+                    text = "1×"
+                    textSize = 12f
+                    setTextColor(if (done) Color.WHITE else MUTED)
+                    setPadding(0, 0, dp(8), 0)
+                })
                 card.addView(TextView(ctx).apply {
                     text = if (done) "✓" else ""
                     textSize = 22f
                     setTextColor(Color.WHITE)
                     typeface = Typeface.DEFAULT_BOLD
                 })
+                card.setOnLongClickListener {
+                    onRemoveChore(c.optString("id"), "${c.optString("icon")} ${c.optString("title")} ($name)")
+                    true
+                }
                 card.setOnClickListener {
-                    // Quick bounce, then toggle (re-render arrives via listener).
+                    // Quick bounce, then toggle — behind the kid's own PIN if set.
                     card.animate().scaleX(0.93f).scaleY(0.93f).setDuration(80).withEndAction {
                         card.animate().scaleX(1f).scaleY(1f).setDuration(80).start()
-                        runCatching {
-                            Chores.mutate(ctx, JSONObject()
-                                .put("action", "toggle").put("choreId", c.optString("id")))
+                        onGate(member?.optString("pin") ?: "", name) {
+                            runCatching {
+                                Chores.mutate(ctx, JSONObject()
+                                    .put("action", "toggle").put("choreId", c.optString("id")))
+                            }
                         }
                     }.start()
                 }
@@ -215,11 +252,11 @@ class ChoresTab(private val ctx: Context) {
     companion object {
         private const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         private const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
-        private val CARD = 0xFFFFFFFF.toInt()
-        private val BG_SOFT = 0xFFFDFCF9.toInt()
-        private val PILL = 0xFFEAE6DC.toInt()
-        private val INK = 0xFF333A45.toInt()
-        private val MUTED = 0xFF737983.toInt()
-        private val ACCENT = 0xFFF0584C.toInt()
+        private val CARD = Palette.CARD
+        private val BG_SOFT = Palette.CARD_SOFT
+        private val PILL = Palette.PILL
+        private val INK = Palette.INK
+        private val MUTED = Palette.MUTED
+        private val ACCENT = Palette.ACCENT
     }
 }

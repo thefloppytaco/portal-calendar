@@ -5,7 +5,12 @@ import android.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class FeedConfig(val name: String, val color: Int, val url: String)
+data class FeedConfig(
+    val name: String,
+    val color: Int,
+    val url: String,
+    /** "calendar" renders on the board; "inbox" = every event is a command. */
+    val kind: String = "calendar")
 
 /** Feed list persisted as a JSON array in SharedPreferences. */
 class ConfigStore(ctx: Context) {
@@ -23,7 +28,8 @@ class ConfigStore(ctx: Context) {
             } catch (e: IllegalArgumentException) {
                 Color.parseColor("#58A6FF")
             }
-            out.add(FeedConfig(o.optString("name", "Calendar"), color, o.optString("url", "")))
+            out.add(FeedConfig(o.optString("name", "Calendar"), color, o.optString("url", ""),
+                if (o.optString("kind") == "inbox") "inbox" else "calendar"))
         }
         return out
     }
@@ -42,16 +48,40 @@ class ConfigStore(ctx: Context) {
             if (!url.startsWith("http://") && !url.startsWith("https://"))
                 throw IllegalArgumentException("\"$name\" has an invalid URL")
             Color.parseColor(color) // throws if bad
-            clean.put(JSONObject().put("name", name).put("color", color).put("url", url))
+            clean.put(JSONObject().put("name", name).put("color", color).put("url", url)
+                .put("kind", if (o.optString("kind") == "inbox") "inbox" else "calendar"))
         }
-        prefs.edit().putString(KEY, clean.toString()).apply()
+        prefs.edit().putString(KEY, clean.toString()).commit() // server thread: durable before the 200 reply
+    }
+
+    /** Set once the setup wizard finishes or is skipped — never auto-launch again. */
+    fun wizardDone(): Boolean = prefs.getBoolean("wizard_done", false)
+
+    fun setWizardDone() {
+        prefs.edit().putBoolean("wizard_done", true).commit()
+    }
+
+    /** Board tab visibility: "chores" / "lists" / "meals", all on by default. */
+    fun featureEnabled(key: String): Boolean = prefs.getBoolean("feature_$key", true)
+
+    fun setFeature(key: String, on: Boolean) {
+        prefs.edit().putBoolean("feature_$key", on).commit()
+    }
+
+    /** Kid-lock PIN; empty = lock disabled. Gates edits on the board only. */
+    fun pin(): String = prefs.getString("kid_pin", "") ?: ""
+
+    fun setPin(v: String) {
+        if (v.isNotEmpty() && !v.matches(Regex("\\d{4}")))
+            throw IllegalArgumentException("the PIN must be exactly 4 digits")
+        prefs.edit().putString("kid_pin", v).commit()
     }
 
     /** Global UI zoom (1.0 = designed-for-Portal+ size; 10″ Portals want ~1.1–1.25). */
     fun uiScale(): Float = prefs.getFloat("ui_scale", 1f)
 
     fun setUiScale(v: Float) {
-        prefs.edit().putFloat("ui_scale", v.coerceIn(0.7f, 1.6f)).apply()
+        prefs.edit().putFloat("ui_scale", v.coerceIn(0.7f, 1.6f)).commit()
     }
 
     companion object {

@@ -23,7 +23,10 @@ import kotlin.math.roundToInt
  * items on the right with big tap-to-check rows, and inline inputs for adding
  * lists/items right on the touchscreen.
  */
-class ListsTab(private val ctx: Context) {
+class ListsTab(
+    private val ctx: Context,
+    private val gate: (action: () -> Unit) -> Unit = { it() }
+) {
 
     private var selectedId: String? = null
     private lateinit var rail: LinearLayout
@@ -105,9 +108,11 @@ class ListsTab(private val ctx: Context) {
         }
         header.addView(clearDoneBtn)
         header.addView(pill("Delete list") {
-            selectedId?.let {
-                runCatching { FamilyLists.mutate(ctx, JSONObject().put("action", "deleteList").put("listId", it)) }
-                selectedId = null
+            gate {
+                selectedId?.let {
+                    runCatching { FamilyLists.mutate(ctx, JSONObject().put("action", "deleteList").put("listId", it)) }
+                    selectedId = null
+                }
             }
         })
         itemsCol.addView(header, lp(bottom = dp(10)))
@@ -251,6 +256,8 @@ class ListsTab(private val ctx: Context) {
         text = label
         textSize = 13f
         setTextColor(MUTED)
+        gravity = Gravity.CENTER
+        minimumHeight = dp(44) // arm's-length tap target (1dp = 1px here)
         background = rounded(PILL, 14)
         setPadding(dp(12), dp(7), dp(12), dp(7))
         setOnClickListener { onClick() }
@@ -279,11 +286,11 @@ class ListsTab(private val ctx: Context) {
     companion object {
         private const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         private const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
-        private val CARD = 0xFFFFFFFF.toInt()
-        private val PILL = 0xFFEAE6DC.toInt()
-        private val INK = 0xFF333A45.toInt()
-        private val MUTED = 0xFF737983.toInt()
-        private val FAINT = 0xFFA3A8B0.toInt()
-        private val ACCENT = 0xFFF0584C.toInt()
+        private val CARD = Palette.CARD
+        private val PILL = Palette.PILL
+        private val INK = Palette.INK
+        private val MUTED = Palette.MUTED
+        private val FAINT = Palette.FAINT
+        private val ACCENT = Palette.ACCENT
     }
 }

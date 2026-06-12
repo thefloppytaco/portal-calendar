@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Wakes the device out of the screensaver dream for the idle takeover. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Optional, adb-granted: lets the takeover guard notice when the stock
+         photo frame has stolen the screen and take it back. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 

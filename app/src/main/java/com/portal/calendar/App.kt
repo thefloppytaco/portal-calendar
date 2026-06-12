@@ -35,6 +35,9 @@ class App : Application() {
     /** The board currently on screen, if any — used for live scale preview. */
     var activeBoard: BoardController? = null
 
+    /** Last synced events, so a rebuilt board paints instantly instead of empty. */
+    @Volatile var lastEvents: List<EventInstance> = emptyList()
+
     fun onMain(block: () -> Unit) {
         main.post(block)
     }
@@ -68,6 +71,16 @@ class App : Application() {
         main.post { configListeners.forEach { it() } }
     }
 
+    /** Debounced Google Tasks reconcile after local list edits / on the sync loop. */
+    private val tasksSyncRunnable = Runnable {
+        Thread { runCatching { GoogleTasks.syncAll(this) } }.start()
+    }
+
+    fun kickTasksSync(delayMs: Long = 2500) {
+        main.removeCallbacks(tasksSyncRunnable)
+        main.postDelayed(tasksSyncRunnable, delayMs)
+    }
+
     /** Local family data changed (lists/chores/meals/members) — cheaper than a feed re-sync. */
     private val dataListeners = CopyOnWriteArraySet<() -> Unit>()
     fun addDataListener(l: () -> Unit) = dataListeners.add(l)
@@ -85,7 +98,13 @@ class App : Application() {
                 wake("portalcal:dismissDream")
             Intent.ACTION_DREAMING_STOPPED -> {
                 if (!pm.isInteractive) return // SCREEN_OFF handles real sleep
+                // A salvo, not a single shot: Immortal's photo frame relaunches
+                // on this same broadcast and holds the screen forever if it
+                // lands last — one lost race used to mean "photo frame until
+                // someone intervenes". Re-asserting is idempotent (singleTask).
                 launchBoard(1200)
+                launchBoard(3500)
+                launchBoard(7000)
             }
             Intent.ACTION_SCREEN_OFF ->
                 // Meta's presence policy puts an "empty" room straight to sleep
@@ -95,6 +114,8 @@ class App : Application() {
                     if (!Screensaver.isEnabled(this)) return@postDelayed
                     wake("portalcal:wakeBoard")
                     launchBoard(800)
+                    launchBoard(3000)
+                    launchBoard(6500)
                 }, 1500)
         }
     }
@@ -107,8 +128,12 @@ class App : Application() {
         )?.acquire(3000)
     }
 
+    /** Bring the board to the front now (used by the foreground guard). */
+    fun assertBoard() = launchBoard(0)
+
     private fun launchBoard(delayMs: Long) {
         main.postDelayed({
+            if (!Screensaver.isEnabled(this)) return@postDelayed
             runCatching {
                 startActivity(Intent(this, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))

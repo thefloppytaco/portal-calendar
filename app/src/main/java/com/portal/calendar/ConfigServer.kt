@@ -14,8 +14,14 @@ class ConfigServer(
     private val onConfigChanged: () -> Unit
 ) : NanoHTTPD(PORT) {
 
+    private class BodyTooLarge : Exception("request body too large")
+
     override fun serve(session: IHTTPSession): Response = try {
         route(session)
+    } catch (e: BodyTooLarge) {
+        // The unread body is still on the socket — don't let keep-alive reuse it.
+        newFixedLengthResponse(Response.Status.PAYLOAD_TOO_LARGE, "application/json",
+            "{\"error\":\"request too large\"}").apply { addHeader("connection", "close") }
     } catch (e: IllegalArgumentException) {
         newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
             "{\"error\":${jsonStr(e.message ?: "invalid input")}}")
@@ -37,6 +43,7 @@ class ConfigServer(
             json("{\"ok\":true}")
         }
         s.uri == "/api/sync" && s.method == Method.POST -> {
+            readBody(s) // drain — an unread body corrupts the next keep-alive request
             onConfigChanged()
             json("{\"ok\":true}")
         }
@@ -56,19 +63,105 @@ class ConfigServer(
                 "<rect x=\"24\" y=\"56\" width=\"44\" height=\"9\" rx=\"4.5\" fill=\"#F2A93B\"/>" +
                 "<rect x=\"24\" y=\"70\" width=\"24\" height=\"9\" rx=\"4.5\" fill=\"#4FA3E3\"/></svg>")
         s.uri == "/api/members" && s.method == Method.GET ->
-            json(Members.json(ctx))
+            json(Members.publicJson(ctx)) // PINs never go over HTTP
         s.uri == "/api/members" && s.method == Method.POST -> {
             Members.save(ctx, readBody(s))
-            json(Members.json(ctx))
+            json(Members.publicJson(ctx))
         }
         s.uri == "/api/lists" && s.method == Method.GET ->
             json(FamilyLists.json(ctx))
         s.uri == "/api/lists" && s.method == Method.POST ->
             json(FamilyLists.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/gtasks/link" && s.method == Method.POST -> {
+            GoogleTasks.link(ctx, org.json.JSONObject(readBody(s)).getString("listId"))
+            json(FamilyLists.json(ctx))
+        }
+        s.uri == "/api/gtasks/unlink" && s.method == Method.POST -> {
+            GoogleTasks.unlink(ctx, org.json.JSONObject(readBody(s)).getString("listId"))
+            json(FamilyLists.json(ctx))
+        }
         s.uri == "/api/chores" && s.method == Method.GET ->
             json(Chores.statusJson(ctx))
         s.uri == "/api/chores" && s.method == Method.POST ->
             json(Chores.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/meals" && s.method == Method.GET ->
+            json(Meals.statusJson(ctx))
+        s.uri == "/api/meals" && s.method == Method.POST ->
+            json(Meals.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/ai" && s.method == Method.GET ->
+            json(Gemini.statusJson(ctx))
+        s.uri == "/api/ai" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(Gemini.setConfig(ctx,
+                if (o.has("enabled")) o.getBoolean("enabled") else null,
+                if (o.has("key")) o.getString("key") else null,
+                if (o.has("model")) o.getString("model") else null))
+        }
+        s.uri == "/api/ai/import" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(Gemini.smartImport(ctx,
+                o.optString("text").takeIf { it.isNotEmpty() },
+                o.optString("image").takeIf { it.isNotEmpty() },
+                o.optString("mime").takeIf { it.isNotEmpty() }))
+        }
+        s.uri == "/api/ai/apply" && s.method == Method.POST ->
+            json(Gemini.applyProposals(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/ai/recipe" && s.method == Method.POST ->
+            json(Gemini.recipe(ctx, org.json.JSONObject(readBody(s)).getString("dish")))
+        s.uri == "/api/ai/meal" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(Gemini.planMeal(ctx,
+                o.getString("dish"), o.getString("date"), o.getString("slot"),
+                o.optBoolean("groceries", true)))
+        }
+        s.uri == "/api/setup" && s.method == Method.GET ->
+            json("{\"fresh\":${store.feeds().isEmpty() && !store.wizardDone()}}")
+        s.uri == "/api/setup" && s.method == Method.POST -> {
+            readBody(s) // drain — an unread body corrupts the next keep-alive request
+            store.setWizardDone()
+            json("{\"fresh\":false}")
+        }
+        s.uri == "/api/features" && s.method == Method.GET ->
+            json(org.json.JSONObject()
+                .put("chores", store.featureEnabled("chores"))
+                .put("lists", store.featureEnabled("lists"))
+                .put("meals", store.featureEnabled("meals")).toString())
+        s.uri == "/api/features" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            for (key in listOf("chores", "lists", "meals"))
+                if (o.has(key)) store.setFeature(key, o.getBoolean(key))
+            App.instance.notifyDataChanged()
+            json(org.json.JSONObject()
+                .put("chores", store.featureEnabled("chores"))
+                .put("lists", store.featureEnabled("lists"))
+                .put("meals", store.featureEnabled("meals")).toString())
+        }
+        s.uri == "/api/pin" && s.method == Method.GET ->
+            json("{\"enabled\":${store.pin().isNotEmpty()}}")
+        s.uri == "/api/pin" && s.method == Method.POST -> {
+            store.setPin(org.json.JSONObject(readBody(s)).optString("pin"))
+            json("{\"enabled\":${store.pin().isNotEmpty()}}")
+        }
+        s.uri == "/api/weather" && s.method == Method.GET ->
+            json(Weather.statusJson(ctx))
+        s.uri == "/api/weather/search" && s.method == Method.POST ->
+            json(Weather.search(org.json.JSONObject(readBody(s)).getString("q")).toString())
+        s.uri == "/api/weather/set" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            Weather.set(ctx,
+                if (o.has("lat")) o.getDouble("lat") else null,
+                if (o.has("lon")) o.getDouble("lon") else null,
+                if (o.has("label")) o.getString("label") else null,
+                if (o.has("unit")) o.getString("unit") else null)
+            Weather.maybeRefresh(ctx, force = true) // worker thread; fine
+            json(Weather.statusJson(ctx))
+        }
+        s.uri == "/api/weather/clear" && s.method == Method.POST -> {
+            readBody(s) // drain
+            Weather.clear(ctx)
+            App.instance.notifyDataChanged()
+            json(Weather.statusJson(ctx))
+        }
         s.uri == "/api/writers" && s.method == Method.GET ->
             json(Writers.statusJson(ctx))
         s.uri == "/api/target" && s.method == Method.POST -> {
@@ -83,6 +176,7 @@ class ConfigServer(
             json(Writers.statusJson(ctx))
         }
         s.uri == "/api/icloud/disconnect" && s.method == Method.POST -> {
+            readBody(s) // drain
             CalDav.disconnect(ctx)
             Writers.ensureDefault(ctx)
             json(Writers.statusJson(ctx))
@@ -98,6 +192,7 @@ class ConfigServer(
             json(Writers.statusJson(ctx))
         }
         s.uri == "/api/google/disconnect" && s.method == Method.POST -> {
+            readBody(s) // drain
             GoogleCal.disconnect(ctx)
             Writers.ensureDefault(ctx)
             json(Writers.statusJson(ctx))
@@ -122,8 +217,10 @@ class ConfigServer(
             val title = o.getString("title").trim()
             if (title.isEmpty()) throw IllegalArgumentException("the event needs a title")
             val allDay = o.optBoolean("allDay", false)
+            // optString turns a JSON null into the string "null" — normalize.
+            val time = o.optString("time").takeIf { it.isNotEmpty() && it != "null" }
             val (start, end) = CalDav.eventWindow(
-                o.getString("date"), o.optString("time", null),
+                o.getString("date"), time,
                 o.optInt("durationMins", 60), allDay)
             Writers.addEvent(ctx, title, start, end, allDay)
             onConfigChanged() // pull feeds so the new event shows up ASAP
@@ -165,6 +262,9 @@ class ConfigServer(
      */
     private fun readBody(s: IHTTPSession): String {
         val len = s.headers["content-length"]?.toIntOrNull() ?: 0
+        // A bogus/hostile Content-Length would otherwise allocate the whole
+        // claimed size on a 256MB-heap device → OOM → process death.
+        if (len > MAX_BODY) throw BodyTooLarge()
         if (len <= 0) {
             val files = HashMap<String, String>()
             s.parseBody(files)
@@ -183,10 +283,14 @@ class ConfigServer(
     private fun json(body: String) =
         newFixedLengthResponse(Response.Status.OK, "application/json", body)
 
-    private fun jsonStr(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    // org.json handles control characters too (raw \n in an error message
+    // would otherwise produce an unparsable error response).
+    private fun jsonStr(s: String): String = org.json.JSONObject.quote(s)
 
     companion object {
         // portal-remote already owns 8080 on this device.
         const val PORT = 8090
+        // Generous for base64 photos on /api/ai/import, tiny vs the heap.
+        const val MAX_BODY = 16 * 1024 * 1024
     }
 }
