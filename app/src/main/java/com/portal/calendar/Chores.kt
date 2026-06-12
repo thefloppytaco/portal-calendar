@@ -12,8 +12,11 @@ import java.util.UUID
 /**
  * Chores & star rewards. A chore belongs to a member and repeats on chosen
  * weekdays (1=Sun … 7=Sat, matching java.util.Calendar). Completions are an
- * append-only log of {choreId, date}; toggling today removes/adds the entry.
- * Stars = completions this week, compared against a per-member weekly goal.
+ * append-only log of {choreId, date, memberId}; toggling today removes/adds
+ * the entry. Stars = completions this week, compared against a per-member
+ * weekly goal. memberId is stamped at completion time so a star survives its
+ * chore being pruned or deleted (older logs without it fall back to looking
+ * the chore up).
  */
 object Chores {
     private const val FILE = "chores.json"
@@ -25,18 +28,21 @@ object Chores {
     private fun dayFmt() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     fun statusJson(ctx: Context): String {
-        val chores = Data.readArray(ctx, FILE)
+        var chores = Data.readArray(ctx, FILE)
         // One-time chores quietly retire a few days after their date.
         val cutoff = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -3) }
         val cut = dayFmt().format(cutoff.time)
-        var pruned = false
-        for (i in chores.length() - 1 downTo 0) {
-            val c = chores.getJSONObject(i)
-            if (c.optBoolean("oneTime") && c.optString("date") < cut) {
-                chores.remove(i); pruned = true
-            }
+        val needsPrune = (0 until chores.length()).any {
+            val c = chores.getJSONObject(it)
+            c.optBoolean("oneTime") && c.optString("date") < cut
         }
-        if (pruned) Data.writeArray(ctx, FILE, chores)
+        if (needsPrune) chores = Data.mutate(ctx, FILE) { arr ->
+            for (i in arr.length() - 1 downTo 0) {
+                val c = arr.getJSONObject(i)
+                if (c.optBoolean("oneTime") && c.optString("date") < cut) arr.remove(i)
+            }
+            arr
+        }
         val done = Data.readArray(ctx, DONE)
         val today = dayFmt().format(Date())
 
@@ -56,7 +62,10 @@ object Chores {
         for (i in 0 until done.length()) {
             val d = done.getJSONObject(i)
             if (d.optString("date") >= weekStart) {
-                val m = choreMember[d.optString("choreId")] ?: continue
+                // Stamped memberId first (survives chore prune/delete);
+                // fall back to the chore lookup for pre-stamp log entries.
+                val m = d.optString("memberId")
+                    .ifEmpty { choreMember[d.optString("choreId")] ?: "" }
                 if (m.isNotEmpty()) stars.put(m, stars.optInt(m, 0) + 1)
             }
         }
@@ -113,70 +122,81 @@ object Chores {
                 val targets = if (ids != null && ids.length() > 0)
                     (0 until ids.length()).map { ids.optString(it) }
                 else listOf(action.optString("memberId"))
-                val arr = Data.readArray(ctx, FILE)
-                for (mid in targets) {
-                    val chore = JSONObject()
-                        .put("id", UUID.randomUUID().toString())
-                        .put("title", title)
-                        .put("memberId", mid)
-                        .put("icon", action.optString("icon").ifEmpty { "⭐" })
-                    if (action.optBoolean("oneTime", false)) {
-                        chore.put("oneTime", true)
-                        chore.put("date", action.optString("date").ifEmpty { dayFmt().format(Date()) })
-                    } else {
-                        chore.put("days", action.optJSONArray("days")
-                            ?: JSONArray(listOf(1, 2, 3, 4, 5, 6, 7)))
+                Data.mutate(ctx, FILE) { arr ->
+                    for (mid in targets) {
+                        val chore = JSONObject()
+                            .put("id", UUID.randomUUID().toString())
+                            .put("title", title)
+                            .put("memberId", mid)
+                            .put("icon", action.optString("icon").ifEmpty { "⭐" })
+                        if (action.optBoolean("oneTime", false)) {
+                            chore.put("oneTime", true)
+                            chore.put("date", action.optString("date").ifEmpty { dayFmt().format(Date()) })
+                        } else {
+                            chore.put("days", action.optJSONArray("days")
+                                ?: JSONArray(listOf(1, 2, 3, 4, 5, 6, 7)))
+                        }
+                        arr.put(chore)
                     }
-                    arr.put(chore)
                 }
-                Data.writeArray(ctx, FILE, arr)
                 // Remember what gets added — the composer learns the family's
                 // common chores and offers them as personalized quick-picks.
-                val hist = Data.readArray(ctx, HISTORY)
-                hist.put(JSONObject()
-                    .put("title", title)
-                    .put("icon", action.optString("icon").ifEmpty { "⭐" }))
-                while (hist.length() > 200) hist.remove(0)
-                Data.writeArray(ctx, HISTORY, hist)
+                Data.mutate(ctx, HISTORY) { hist ->
+                    hist.put(JSONObject()
+                        .put("title", title)
+                        .put("icon", action.optString("icon").ifEmpty { "⭐" }))
+                    while (hist.length() > 200) hist.remove(0)
+                }
             }
             "deleteChore" -> {
-                val arr = Data.readArray(ctx, FILE)
                 val id = action.getString("choreId")
-                for (i in arr.length() - 1 downTo 0)
-                    if (arr.getJSONObject(i).optString("id") == id) arr.remove(i)
-                Data.writeArray(ctx, FILE, arr)
-                // Purge its completions so deleted chores never haunt the log.
-                val done = Data.readArray(ctx, DONE)
-                for (i in done.length() - 1 downTo 0)
-                    if (done.getJSONObject(i).optString("choreId") == id) done.remove(i)
-                Data.writeArray(ctx, DONE, done)
+                Data.mutate(ctx, FILE) { arr ->
+                    for (i in arr.length() - 1 downTo 0)
+                        if (arr.getJSONObject(i).optString("id") == id) arr.remove(i)
+                }
+                // Drop only completions that can't stand on their own (no
+                // stamped memberId) — earned stars survive the deletion.
+                Data.mutate(ctx, DONE) { done ->
+                    for (i in done.length() - 1 downTo 0) {
+                        val d = done.getJSONObject(i)
+                        if (d.optString("choreId") == id && d.optString("memberId").isEmpty())
+                            done.remove(i)
+                    }
+                }
             }
             "toggle" -> {
                 val id = action.getString("choreId")
                 val today = dayFmt().format(Date())
-                val done = Data.readArray(ctx, DONE)
-                var removed = false
-                for (i in done.length() - 1 downTo 0) {
-                    val d = done.getJSONObject(i)
-                    if (d.optString("choreId") == id && d.optString("date") == today) {
-                        done.remove(i); removed = true
-                    }
+                // Resolve the assignee now so the star outlives the chore.
+                val memberId = Data.readArray(ctx, FILE).let { arr ->
+                    (0 until arr.length()).map { arr.getJSONObject(it) }
+                        .firstOrNull { it.optString("id") == id }
+                        ?.optString("memberId").orEmpty()
                 }
-                if (!removed) done.put(JSONObject().put("choreId", id).put("date", today))
-                prune(done)
-                Data.writeArray(ctx, DONE, done)
+                Data.mutate(ctx, DONE) { done ->
+                    var removed = false
+                    for (i in done.length() - 1 downTo 0) {
+                        val d = done.getJSONObject(i)
+                        if (d.optString("choreId") == id && d.optString("date") == today) {
+                            done.remove(i); removed = true
+                        }
+                    }
+                    if (!removed) done.put(JSONObject()
+                        .put("choreId", id).put("date", today).put("memberId", memberId))
+                    prune(done)
+                }
             }
             "setGoal" -> {
-                val arr = Data.readArray(ctx, GOALS)
                 val mid = action.getString("memberId")
                 val goal = action.getInt("goal").coerceIn(1, 99)
-                var found = false
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    if (o.optString("memberId") == mid) { o.put("goal", goal); found = true }
+                Data.mutate(ctx, GOALS) { arr ->
+                    var found = false
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        if (o.optString("memberId") == mid) { o.put("goal", goal); found = true }
+                    }
+                    if (!found) arr.put(JSONObject().put("memberId", mid).put("goal", goal))
                 }
-                if (!found) arr.put(JSONObject().put("memberId", mid).put("goal", goal))
-                Data.writeArray(ctx, GOALS, arr)
             }
             else -> throw IllegalArgumentException("unknown action")
         }

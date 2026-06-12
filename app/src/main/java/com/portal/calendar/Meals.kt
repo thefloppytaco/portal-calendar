@@ -33,37 +33,37 @@ object Meals {
                 val slot = action.getString("slot")
                 if (slot !in SLOTS) throw IllegalArgumentException("unknown meal slot")
                 val text = action.optString("text").trim()
-                val arr = Data.readArray(ctx, PLAN)
-                for (i in arr.length() - 1 downTo 0) {
-                    val o = arr.getJSONObject(i)
-                    if (o.optString("date") == date && o.optString("slot") == slot) arr.remove(i)
+                Data.mutate(ctx, PLAN) { arr ->
+                    for (i in arr.length() - 1 downTo 0) {
+                        val o = arr.getJSONObject(i)
+                        if (o.optString("date") == date && o.optString("slot") == slot) arr.remove(i)
+                    }
+                    if (text.isNotEmpty()) {
+                        val entry = JSONObject().put("date", date).put("slot", slot).put("text", text)
+                        action.optString("recipeId").takeIf { it.isNotEmpty() }
+                            ?.let { entry.put("recipeId", it) }
+                        arr.put(entry)
+                    }
+                    prune(arr)
                 }
-                if (text.isNotEmpty()) {
-                    val entry = JSONObject().put("date", date).put("slot", slot).put("text", text)
-                    action.optString("recipeId").takeIf { it.isNotEmpty() }
-                        ?.let { entry.put("recipeId", it) }
-                    arr.put(entry)
-                }
-                prune(arr)
-                Data.writeArray(ctx, PLAN, arr)
             }
             "addRecipe" -> {
                 val title = action.getString("title").trim()
                 if (title.isEmpty()) throw IllegalArgumentException("the recipe needs a name")
-                val arr = Data.readArray(ctx, RECIPES)
-                arr.put(JSONObject()
-                    .put("id", UUID.randomUUID().toString())
-                    .put("title", title)
-                    .put("ingredients", action.optString("ingredients").trim())
-                    .put("steps", action.optString("steps").trim()))
-                Data.writeArray(ctx, RECIPES, arr)
+                Data.mutate(ctx, RECIPES) { arr ->
+                    arr.put(JSONObject()
+                        .put("id", UUID.randomUUID().toString())
+                        .put("title", title)
+                        .put("ingredients", action.optString("ingredients").trim())
+                        .put("steps", action.optString("steps").trim()))
+                }
             }
             "deleteRecipe" -> {
-                val arr = Data.readArray(ctx, RECIPES)
                 val id = action.getString("recipeId")
-                for (i in arr.length() - 1 downTo 0)
-                    if (arr.getJSONObject(i).optString("id") == id) arr.remove(i)
-                Data.writeArray(ctx, RECIPES, arr)
+                Data.mutate(ctx, RECIPES) { arr ->
+                    for (i in arr.length() - 1 downTo 0)
+                        if (arr.getJSONObject(i).optString("id") == id) arr.remove(i)
+                }
             }
             else -> throw IllegalArgumentException("unknown action")
         }
@@ -73,14 +73,14 @@ object Meals {
 
     /** Saves a recipe and returns its id (used by the AI meal planner). */
     fun addRecipeDirect(ctx: Context, title: String, ingredients: String, steps: String): String {
-        val arr = Data.readArray(ctx, RECIPES)
         val id = UUID.randomUUID().toString()
-        arr.put(JSONObject()
-            .put("id", id)
-            .put("title", title.trim().ifEmpty { "Recipe" })
-            .put("ingredients", ingredients.trim())
-            .put("steps", steps.trim()))
-        Data.writeArray(ctx, RECIPES, arr)
+        Data.mutate(ctx, RECIPES) { arr ->
+            arr.put(JSONObject()
+                .put("id", id)
+                .put("title", title.trim().ifEmpty { "Recipe" })
+                .put("ingredients", ingredients.trim())
+                .put("steps", steps.trim()))
+        }
         App.instance.notifyDataChanged()
         return id
     }

@@ -16,7 +16,13 @@ object FamilyLists {
     fun json(ctx: Context): String = Data.readArray(ctx, FILE).toString()
 
     fun mutate(ctx: Context, action: JSONObject): String {
-        val arr = Data.readArray(ctx, FILE)
+        val out = Data.mutate(ctx, FILE) { arr -> apply(arr, action); arr.toString() }
+        App.instance.notifyDataChanged()
+        App.instance.kickTasksSync()
+        return out
+    }
+
+    private fun apply(arr: JSONArray, action: JSONObject) {
         when (action.getString("action")) {
             "addList" -> {
                 val name = action.getString("name").trim()
@@ -73,10 +79,6 @@ object FamilyLists {
             }
             else -> throw IllegalArgumentException("unknown action")
         }
-        Data.writeArray(ctx, FILE, arr)
-        App.instance.notifyDataChanged()
-        App.instance.kickTasksSync()
-        return arr.toString()
     }
 
     /** Remembers a synced item's Google id so the next sync pass deletes it remotely. */

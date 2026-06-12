@@ -27,8 +27,12 @@ object Members {
                     .put("color", hex(f.color)))
             }
             if (seeded.length() > 0) {
-                Data.writeArray(ctx, FILE, seeded)
-                arr = seeded
+                // Seed under the lock so two first-readers can't double-seed
+                // members with mismatched UUIDs.
+                arr = Data.mutate(ctx, FILE) { cur ->
+                    if (cur.length() == 0) for (i in 0 until seeded.length()) cur.put(seeded.get(i))
+                    cur
+                }
             }
         }
         return (0 until arr.length()).mapNotNull {
