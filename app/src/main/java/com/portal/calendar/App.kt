@@ -128,6 +128,9 @@ class App : Application() {
         )?.acquire(3000)
     }
 
+    /** Bring the board to the front now (used by the foreground guard). */
+    fun assertBoard() = launchBoard(0)
+
     private fun launchBoard(delayMs: Long) {
         main.postDelayed({
             if (!Screensaver.isEnabled(this)) return@postDelayed
