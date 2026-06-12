@@ -98,7 +98,13 @@ class App : Application() {
                 wake("portalcal:dismissDream")
             Intent.ACTION_DREAMING_STOPPED -> {
                 if (!pm.isInteractive) return // SCREEN_OFF handles real sleep
+                // A salvo, not a single shot: Immortal's photo frame relaunches
+                // on this same broadcast and holds the screen forever if it
+                // lands last — one lost race used to mean "photo frame until
+                // someone intervenes". Re-asserting is idempotent (singleTask).
                 launchBoard(1200)
+                launchBoard(3500)
+                launchBoard(7000)
             }
             Intent.ACTION_SCREEN_OFF ->
                 // Meta's presence policy puts an "empty" room straight to sleep
@@ -108,6 +114,8 @@ class App : Application() {
                     if (!Screensaver.isEnabled(this)) return@postDelayed
                     wake("portalcal:wakeBoard")
                     launchBoard(800)
+                    launchBoard(3000)
+                    launchBoard(6500)
                 }, 1500)
         }
     }
@@ -122,6 +130,7 @@ class App : Application() {
 
     private fun launchBoard(delayMs: Long) {
         main.postDelayed({
+            if (!Screensaver.isEnabled(this)) return@postDelayed
             runCatching {
                 startActivity(Intent(this, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))

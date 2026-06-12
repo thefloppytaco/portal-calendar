@@ -11,8 +11,8 @@ android {
     minSdk = 28
     // Portal+ gen-1 is API 28; staying at 28 avoids newer background restrictions.
     targetSdk = 28
-    versionCode = 13
-    versionName = "2.8"
+    versionCode = 14
+    versionName = "2.8.1"
   }
 
   buildTypes {
