@@ -926,6 +926,7 @@ class BoardController(private val baseCtx: Context) {
         monthOffset = 0
         dayOffset = 0
         scheduleOffset = 0
+        mealsTab.reset() // its private week offset must come home too
         closeOverlays()
         if (currentTab != 0) setTab(0)
         setView(VIEW_WEEK)
@@ -994,6 +995,8 @@ class BoardController(private val baseCtx: Context) {
             text = "⚙ Settings"
             textSize = 14f
             setTextColor(MUTED)
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48) // wall-display touch target (1dp = 1px here)
             setPadding(0, dp(8), dp(12), dp(2))
             setOnClickListener { requirePin { showSettingsOverlay() } }
         }, LinearLayout.LayoutParams(0, WRAP, 1f))
@@ -1001,6 +1004,9 @@ class BoardController(private val baseCtx: Context) {
             text = "✕"
             textSize = 16f
             setTextColor(MUTED)
+            gravity = Gravity.CENTER
+            minimumHeight = dp(48)
+            minimumWidth = dp(48)
             setPadding(dp(12), dp(8), dp(4), dp(2))
             setOnClickListener { onExit?.invoke() }
         }
@@ -1024,6 +1030,7 @@ class BoardController(private val baseCtx: Context) {
                 textSize = 15f
                 gravity = Gravity.CENTER
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                minimumHeight = dp(48) // comfortable tap target at arm's length
                 setPadding(dp(18), dp(8), dp(18), dp(8))
                 setOnClickListener { setTab(i) }
             }
@@ -2035,10 +2042,24 @@ class BoardController(private val baseCtx: Context) {
         updateEmptyState()
     }
 
+    // Cached: this runs every second, 24/7 — building two SimpleDateFormats
+    // per tick is ~170k allocations a day, and unconditional setText forces a
+    // relayout/redraw every second even though the string changes per minute.
+    private var clockFmt: SimpleDateFormat? = null
+    private var clockFmt24 = false
+    private val dateFmt = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault())
+
     private fun updateClock() {
         val now = Calendar.getInstance()
-        clockText.text = timeFormat().format(now.time)
-        dateText.text = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now.time)
+        val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
+        if (clockFmt == null || is24 != clockFmt24) {
+            clockFmt24 = is24
+            clockFmt = timeFormat()
+        }
+        val time = clockFmt!!.format(now.time)
+        if (clockText.text?.toString() != time) clockText.text = time
+        val date = dateFmt.format(now.time)
+        if (dateText.text?.toString() != date) dateText.text = date
         val stamp = "${now.get(Calendar.YEAR)}-${now.get(Calendar.DAY_OF_YEAR)}"
         if (stamp != lastDayStamp) {
             val firstRun = lastDayStamp.isEmpty()
@@ -2050,6 +2071,13 @@ class BoardController(private val baseCtx: Context) {
                 scheduleOffset = 0
                 renderToday()
                 renderCalendar()
+                // The tabs capture "today" at render time too — a board left
+                // on Chores overnight kept showing yesterday's chores.
+                when (currentTab) {
+                    1 -> choresTab.render()
+                    2 -> listsTab.render()
+                    3 -> mealsTab.render()
+                }
             }
         }
     }

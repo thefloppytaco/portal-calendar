@@ -106,6 +106,17 @@ object Meals {
         return out
     }
 
+    /** date → (slot → entry), one file read for a whole week's render. */
+    fun planForWeek(ctx: Context): Map<String, Map<String, JSONObject>> {
+        val arr = Data.readArray(ctx, PLAN)
+        val out = HashMap<String, HashMap<String, JSONObject>>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            out.getOrPut(o.optString("date")) { HashMap() }[o.optString("slot")] = o
+        }
+        return out
+    }
+
     private fun prune(arr: JSONArray) {
         val cutoff = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -7) }
         val cut = dayFmt().format(cutoff.time)

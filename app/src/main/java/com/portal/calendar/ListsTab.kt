@@ -256,6 +256,8 @@ class ListsTab(
         text = label
         textSize = 13f
         setTextColor(MUTED)
+        gravity = Gravity.CENTER
+        minimumHeight = dp(44) // arm's-length tap target (1dp = 1px here)
         background = rounded(PILL, 14)
         setPadding(dp(12), dp(7), dp(12), dp(7))
         setOnClickListener { onClick() }

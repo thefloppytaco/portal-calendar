@@ -29,6 +29,9 @@ class MealsTab(
     private lateinit var grid: LinearLayout
     val view: LinearLayout = build()
 
+    /** Back to the current week (called on takeover relaunch resets). */
+    fun reset() { weekOffset = 0 }
+
     private fun dp(v: Int): Int = (v * ctx.resources.displayMetrics.density).roundToInt()
 
     private fun build(): LinearLayout {
@@ -92,13 +95,15 @@ class MealsTab(
         val today = Calendar.getInstance()
         val dayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val nameFmt = SimpleDateFormat("EEE d", Locale.getDefault())
+        // One file read for the whole week, not one per day.
+        val weekPlan = Meals.planForWeek(ctx)
 
         grid.removeAllViews()
         for (i in 0..6) {
             val dayCal = (ws.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, i) }
             val isToday = dayCal.get(Calendar.YEAR) == today.get(Calendar.YEAR) &&
                     dayCal.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)
-            val plan = Meals.planFor(ctx, dayFmt.format(dayCal.time))
+            val plan = weekPlan[dayFmt.format(dayCal.time)] ?: emptyMap()
 
             val col = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
@@ -129,6 +134,8 @@ class MealsTab(
                     setTextColor(INK)
                     maxLines = 2
                     ellipsize = TextUtils.TruncateAt.END
+                    minimumHeight = dp(44) // the row IS the tap target for the recipe
+                    gravity = Gravity.CENTER_VERTICAL
                     run {
                         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                         setOnClickListener {
@@ -174,6 +181,7 @@ class MealsTab(
         textSize = 15f
         setTextColor(INK)
         gravity = Gravity.CENTER
+        minimumHeight = dp(44) // arm's-length tap target
         background = rounded(PILL, 18)
         setPadding(dp(16), dp(7), dp(16), dp(7))
         setOnClickListener { onClick() }
