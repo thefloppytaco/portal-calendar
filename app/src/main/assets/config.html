@@ -157,7 +157,7 @@
 
   <div class="card" data-tab="meals" id="aiMealCard" style="display:none;">
     <strong>✨ Plan a meal</strong>
-    <div style="font-size:13px;color:#737983;margin:6px 0 8px;">Name a dish — AI writes the recipe, puts it on the calendar, and adds the ingredients to Groceries so everyone can check off what's already in the pantry.</div>
+    <div style="font-size:13px;color:#737983;margin:6px 0 8px;">Name a dish — AI writes the recipe, puts it on the calendar, and makes a dedicated shopping list for it (named after the recipe) so everyone can check off what's already in the pantry.</div>
     <input type="text" id="aiMealDish" placeholder="e.g. sheet-pan fajitas" autocomplete="off">
     <div class="row2">
       <select id="aiMealDay" style="margin:0;"></select>
@@ -168,7 +168,7 @@
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin:2px 0 10px;">
       <input type="checkbox" id="aiMealGroceries" checked style="width:20px;height:20px;flex:none;">
-      Add the ingredients to Groceries
+      Make a shopping list for this recipe
     </label>
     <button style="width:100%;" onclick="aiPlanMeal()">Generate &amp; plan it</button>
     <div id="aiMealMsg" class="msgline"></div>
@@ -1300,7 +1300,7 @@ async function aiPlanMeal(){
     if (!r.ok) throw new Error(res.error || 'failed');
     document.getElementById('aiMealDish').value = '';
     loadMeals();
-    show('aiMealMsg', `✓ "${res.title}" is planned${res.groceriesAdded ? ` — ${res.groceriesAdded} ingredients added to Groceries` : ''}`, true);
+    show('aiMealMsg', `✓ "${res.title}" is planned${res.groceriesAdded ? ` — shopping list "${res.listName}" created with ${res.groceriesAdded} items (Lists tab)` : ''}`, true);
   } catch(e){ show('aiMealMsg', e.message, false); }
 }
 

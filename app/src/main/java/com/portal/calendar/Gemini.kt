@@ -303,19 +303,20 @@ object Gemini {
             .put("slot", slot)
             .put("text", title)
             .put("recipeId", recipeId))
+        // A dedicated shopping list per recipe (named after it) — the family
+        // checks off what's in the pantry without cluttering the main
+        // Groceries list. Replanning the same dish reuses its list.
         var added = 0
         if (addGroceries) {
             val existing = HashSet<String>()
             val lists = JSONArray(FamilyLists.json(ctx))
             for (i in 0 until lists.length()) {
                 val l = lists.getJSONObject(i)
-                if (!MagicWords.fuzzyEquals(l.optString("name").lowercase(Locale.US), "groceries"))
-                    continue
+                if (!MagicWords.fuzzyEquals(l.optString("name").lowercase(Locale.US),
+                        title.lowercase(Locale.US))) continue
                 val items = l.optJSONArray("items") ?: continue
                 for (j in 0 until items.length()) {
-                    val it2 = items.getJSONObject(j)
-                    if (!it2.optBoolean("done"))
-                        existing.add(it2.optString("text").lowercase(Locale.US))
+                    existing.add(items.getJSONObject(j).optString("text").lowercase(Locale.US))
                 }
             }
             rec.optString("ingredients").split("\n")
@@ -323,12 +324,13 @@ object Gemini {
                 .filter { it.isNotEmpty() }
                 .forEach { line ->
                     if (existing.none { e -> MagicWords.fuzzyEquals(e, line.lowercase(Locale.US)) }) {
-                        MagicWords.addToList(ctx, "Groceries", line)
+                        MagicWords.addToList(ctx, title, line)
                         added++
                     }
                 }
         }
-        return JSONObject().put("title", title).put("groceriesAdded", added).toString()
+        return JSONObject().put("title", title).put("groceriesAdded", added)
+            .put("listName", if (addGroceries) title else "").toString()
     }
 
     /** Dish name → a recipe for the recipe box (returned for review, not saved). */

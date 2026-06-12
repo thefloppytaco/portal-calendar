@@ -651,7 +651,7 @@ class BoardController(private val baseCtx: Context) {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }, lpMatchWrap(bottom = dp(4)))
         card.addView(TextView(ctx).apply {
-            text = "AI writes the recipe, puts it on the menu, and sends the\ningredients to Groceries — check off what's already at home."
+            text = "AI writes the recipe, puts it on the menu, and makes a\nshopping list just for it — check off what's already at home."
             textSize = 13f
             setTextColor(MUTED)
         }, lpMatchWrap(bottom = dp(12)))
@@ -701,7 +701,7 @@ class BoardController(private val baseCtx: Context) {
         card.addView(mealSlotRow, lpMatchWrap(bottom = dp(10)))
 
         mealGroceriesToggle = TextView(ctx).apply {
-            text = "🧺 Ingredients → Groceries"
+            text = "🧺 Make a shopping list for it"
             textSize = 14f
             gravity = Gravity.CENTER
             setPadding(dp(14), dp(7), dp(14), dp(7))
@@ -745,7 +745,7 @@ class BoardController(private val baseCtx: Context) {
                     mealAiOverlay.visibility = View.GONE
                     statusLine = "Planned “${res.optString("title")}”" +
                         if (res.optInt("groceriesAdded") > 0)
-                            " · ${res.optInt("groceriesAdded")} ingredients → Groceries" else ""
+                            " · shopping list in Lists" else ""
                     renderAll()
                 }
             } catch (e: Exception) {
