@@ -71,6 +71,20 @@ object Meals {
         return statusJson(ctx)
     }
 
+    /** Saves a recipe and returns its id (used by the AI meal planner). */
+    fun addRecipeDirect(ctx: Context, title: String, ingredients: String, steps: String): String {
+        val arr = Data.readArray(ctx, RECIPES)
+        val id = UUID.randomUUID().toString()
+        arr.put(JSONObject()
+            .put("id", id)
+            .put("title", title.trim().ifEmpty { "Recipe" })
+            .put("ingredients", ingredients.trim())
+            .put("steps", steps.trim()))
+        Data.writeArray(ctx, RECIPES, arr)
+        App.instance.notifyDataChanged()
+        return id
+    }
+
     fun recipe(ctx: Context, id: String?): JSONObject? {
         if (id.isNullOrEmpty()) return null
         val arr = Data.readArray(ctx, RECIPES)

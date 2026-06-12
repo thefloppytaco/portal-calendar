@@ -101,6 +101,12 @@ class ConfigServer(
             json(Gemini.applyProposals(ctx, org.json.JSONObject(readBody(s))))
         s.uri == "/api/ai/recipe" && s.method == Method.POST ->
             json(Gemini.recipe(ctx, org.json.JSONObject(readBody(s)).getString("dish")))
+        s.uri == "/api/ai/meal" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(Gemini.planMeal(ctx,
+                o.getString("dish"), o.getString("date"), o.getString("slot"),
+                o.optBoolean("groceries", true)))
+        }
         s.uri == "/api/setup" && s.method == Method.GET ->
             json("{\"fresh\":${store.feeds().isEmpty() && !store.wizardDone()}}")
         s.uri == "/api/setup" && s.method == Method.POST -> {

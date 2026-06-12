@@ -247,6 +247,10 @@ class BoardController(private val baseCtx: Context) {
             hideKeyboard()
             choreOverlay.visibility = View.GONE; closed = true
         }
+        if (mealAiOverlay.visibility == View.VISIBLE) {
+            hideKeyboard()
+            mealAiOverlay.visibility = View.GONE; closed = true
+        }
         if (detailOverlay.visibility == View.VISIBLE) {
             detailOverlay.visibility = View.GONE; closed = true
         }
@@ -312,6 +316,8 @@ class BoardController(private val baseCtx: Context) {
         root.addView(detailOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         choreOverlay = buildChoreOverlay()
         root.addView(choreOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        mealAiOverlay = buildMealAiOverlay()
+        root.addView(mealAiOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         confirmOverlay = buildConfirmOverlay()
         root.addView(confirmOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         pinOverlay = buildPinOverlay()
@@ -584,6 +590,171 @@ class BoardController(private val baseCtx: Context) {
         }.onFailure {
             choreMsg.text = it.message ?: "Couldn't add the chore"
         }
+    }
+
+    // ------------------------------------------------------ AI meal planner
+
+    private lateinit var mealAiOverlay: FrameLayout
+    private lateinit var mealDishInput: EditText
+    private lateinit var mealDateLabel: TextView
+    private lateinit var mealSlotRow: LinearLayout
+    private lateinit var mealGroceriesToggle: TextView
+    private lateinit var mealAiMsg: TextView
+    private var mealDate: Calendar = Calendar.getInstance()
+    private var mealSlot = "dinner"
+    private var mealGroceries = true
+    private var mealAiBusy = false
+
+    private fun showMealAiOverlay() {
+        mealDishInput.setText("")
+        mealDate = Calendar.getInstance()
+        mealSlot = "dinner"
+        mealGroceries = true
+        mealAiBusy = false
+        mealAiMsg.text = ""
+        refreshMealAiOverlay()
+        mealAiOverlay.visibility = View.VISIBLE
+        mealDishInput.requestFocus()
+        (ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+            .showSoftInput(mealDishInput, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun refreshMealAiOverlay() {
+        mealDateLabel.text = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(mealDate.time)
+        for (i in 0 until mealSlotRow.childCount) {
+            val chip = mealSlotRow.getChildAt(i) as TextView
+            val on = chip.tag == mealSlot
+            chip.background = rounded(if (on) ACCENT else PILL, 18)
+            chip.setTextColor(if (on) Color.WHITE else INK)
+        }
+        mealGroceriesToggle.background = rounded(if (mealGroceries) ACCENT else PILL, 18)
+        mealGroceriesToggle.setTextColor(if (mealGroceries) Color.WHITE else INK)
+    }
+
+    private fun buildMealAiOverlay(): FrameLayout {
+        val scrim = FrameLayout(ctx).apply {
+            setBackgroundColor(SCRIM)
+            visibility = View.GONE
+            setOnClickListener { hideKeyboard(); visibility = View.GONE }
+        }
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(CARD, 20)
+            elevation = dp(10).toFloat()
+            setPadding(dp(28), dp(20), dp(28), dp(16))
+            isClickable = true
+        }
+        card.addView(TextView(ctx).apply {
+            text = "✨ Plan a meal"
+            textSize = 20f
+            setTextColor(INK)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }, lpMatchWrap(bottom = dp(4)))
+        card.addView(TextView(ctx).apply {
+            text = "AI writes the recipe, puts it on the menu, and sends the\ningredients to Groceries — check off what's already at home."
+            textSize = 13f
+            setTextColor(MUTED)
+        }, lpMatchWrap(bottom = dp(12)))
+
+        mealDishInput = EditText(ctx).apply {
+            hint = "What are we making?"
+            textSize = 16f
+            setTextColor(INK)
+            setHintTextColor(FAINT)
+            isSingleLine = true
+            background = roundedStroke(Palette.FIELD, 12, dp(1), Palette.FIELD_STROKE)
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+        }
+        card.addView(mealDishInput, LinearLayout.LayoutParams(dp(480), WRAP).apply { bottomMargin = dp(12) })
+
+        val dateRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        dateRow.addView(navButton("‹") {
+            mealDate.add(Calendar.DAY_OF_MONTH, -1); refreshMealAiOverlay()
+        })
+        mealDateLabel = TextView(ctx).apply {
+            textSize = 16f
+            setTextColor(INK)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        dateRow.addView(mealDateLabel, LinearLayout.LayoutParams(dp(170), WRAP))
+        dateRow.addView(navButton("›") {
+            mealDate.add(Calendar.DAY_OF_MONTH, 1); refreshMealAiOverlay()
+        })
+        card.addView(dateRow, lpMatchWrap(bottom = dp(10)))
+
+        mealSlotRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((slot, label) in listOf("breakfast" to "Breakfast", "lunch" to "Lunch",
+                                      "dinner" to "Dinner", "snack" to "Snack")) {
+            mealSlotRow.addView(TextView(ctx).apply {
+                text = label
+                tag = slot
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(dp(14), dp(7), dp(14), dp(7))
+                setOnClickListener { mealSlot = slot; refreshMealAiOverlay() }
+            }, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(8) })
+        }
+        card.addView(mealSlotRow, lpMatchWrap(bottom = dp(10)))
+
+        mealGroceriesToggle = TextView(ctx).apply {
+            text = "🧺 Ingredients → Groceries"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+            setOnClickListener { mealGroceries = !mealGroceries; refreshMealAiOverlay() }
+        }
+        card.addView(mealGroceriesToggle, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = dp(6) })
+
+        mealAiMsg = TextView(ctx).apply {
+            textSize = 13f
+            setTextColor(ACCENT)
+            minHeight = dp(18)
+        }
+        card.addView(mealAiMsg, lpMatchWrap())
+
+        val buttons = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        buttons.addView(navButton("Cancel") { hideKeyboard(); mealAiOverlay.visibility = View.GONE })
+        buttons.addView(accentButton("Generate") { saveAiMeal() })
+        card.addView(buttons, lpMatchWrap(top = dp(8)))
+
+        scrim.addView(overlayScroll(card), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        return scrim
+    }
+
+    private fun saveAiMeal() {
+        if (mealAiBusy) return
+        val dish = mealDishInput.text.toString().trim()
+        if (dish.isEmpty()) { mealAiMsg.text = "What are we making?"; return }
+        mealAiBusy = true
+        mealAiMsg.text = "✨ Writing the recipe…"
+        hideKeyboard()
+        val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(mealDate.time)
+        Thread {
+            try {
+                val res = org.json.JSONObject(
+                    Gemini.planMeal(ctx, dish, date, mealSlot, mealGroceries))
+                handler.post {
+                    mealAiBusy = false
+                    mealAiOverlay.visibility = View.GONE
+                    statusLine = "Planned “${res.optString("title")}”" +
+                        if (res.optInt("groceriesAdded") > 0)
+                            " · ${res.optInt("groceriesAdded")} ingredients → Groceries" else ""
+                    renderAll()
+                }
+            } catch (e: Exception) {
+                handler.post {
+                    mealAiBusy = false
+                    mealAiMsg.text = e.message ?: "Couldn't plan the meal"
+                }
+            }
+        }.start()
     }
 
     // ------------------------------------------------------ confirm dialog
@@ -892,11 +1063,11 @@ class BoardController(private val baseCtx: Context) {
                 }
             })
         area.addView(choresTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
-        mealsTab = MealsTab(ctx) { title, body ->
+        mealsTab = MealsTab(ctx, { title, body ->
             detailTitle.text = title
             detailBody.text = body
             detailOverlay.visibility = View.VISIBLE
-        }
+        }, onPlanMeal = { requirePin { showMealAiOverlay() } })
         area.addView(mealsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
         tabPanels = listOf(weekPanel, choresTab.view, listsTab.view, mealsTab.view)
 

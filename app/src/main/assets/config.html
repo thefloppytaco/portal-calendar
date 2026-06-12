@@ -155,6 +155,25 @@
     <div id="listsMsg" class="msgline"></div>
   </div>
 
+  <div class="card" data-tab="meals" id="aiMealCard" style="display:none;">
+    <strong>✨ Plan a meal</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 8px;">Name a dish — AI writes the recipe, puts it on the calendar, and adds the ingredients to Groceries so everyone can check off what's already in the pantry.</div>
+    <input type="text" id="aiMealDish" placeholder="e.g. sheet-pan fajitas" autocomplete="off">
+    <div class="row2">
+      <select id="aiMealDay" style="margin:0;"></select>
+      <select id="aiMealSlot" style="margin:0;">
+        <option value="dinner">Dinner</option><option value="lunch">Lunch</option>
+        <option value="breakfast">Breakfast</option><option value="snack">Snack</option>
+      </select>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin:2px 0 10px;">
+      <input type="checkbox" id="aiMealGroceries" checked style="width:20px;height:20px;flex:none;">
+      Add the ingredients to Groceries
+    </label>
+    <button style="width:100%;" onclick="aiPlanMeal()">Generate &amp; plan it</button>
+    <div id="aiMealMsg" class="msgline"></div>
+  </div>
+
   <div class="card" data-tab="meals">
     <strong>This week's meals</strong>
     <div style="font-size:13px;color:#737983;margin:6px 0 8px;">Type a meal and press Enter — start with a recipe's exact name to link it. The board's Meals tab shows the week.</div>
@@ -1147,6 +1166,8 @@ function applyAi(st){
   const ready = st.enabled && st.hasKey;
   document.getElementById('aiImportCard').style.display = ready ? '' : 'none';
   document.getElementById('aiRecipeRow').style.display = ready ? 'flex' : 'none';
+  document.getElementById('aiMealCard').style.display = ready ? '' : 'none';
+  if (ready) aiMealDays();
   const row = document.getElementById('aiModelRow');
   if (st.hasKey && st.models.length) {
     row.style.display = 'block';
@@ -1250,6 +1271,37 @@ async function aiApply(){
     const errs = res.errors.length ? ` (${res.errors.length} failed: ${res.errors[0]})` : '';
     show('aiImpMsg', `✓ Added ${res.applied} item${res.applied === 1 ? '' : 's'}${errs}`, res.errors.length === 0);
   } catch(e){ show('aiImpMsg', e.message, false); }
+}
+
+function aiMealDays(){
+  const sel = document.getElementById('aiMealDay');
+  if (sel.options.length) return;
+  const now = new Date();
+  for (let i = 0; i < 7; i++){
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    const val = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow'
+      : d.toLocaleDateString(undefined, {weekday:'long'});
+    sel.insertAdjacentHTML('beforeend', `<option value="${val}">${label}</option>`);
+  }
+}
+
+async function aiPlanMeal(){
+  const dish = document.getElementById('aiMealDish').value.trim();
+  if (!dish) return show('aiMealMsg', 'Name a dish first', false);
+  show('aiMealMsg', '✨ Writing the recipe and planning it…', true);
+  try {
+    const r = await fetch('/api/ai/meal', {method:'POST', body: JSON.stringify({
+      dish,
+      date: document.getElementById('aiMealDay').value,
+      slot: document.getElementById('aiMealSlot').value,
+      groceries: document.getElementById('aiMealGroceries').checked})});
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.error || 'failed');
+    document.getElementById('aiMealDish').value = '';
+    loadMeals();
+    show('aiMealMsg', `✓ "${res.title}" is planned${res.groceriesAdded ? ` — ${res.groceriesAdded} ingredients added to Groceries` : ''}`, true);
+  } catch(e){ show('aiMealMsg', e.message, false); }
 }
 
 async function aiRecipe(){

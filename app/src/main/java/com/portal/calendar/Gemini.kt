@@ -285,6 +285,52 @@ object Gemini {
         return JSONObject().put("applied", applied).put("errors", errors).toString()
     }
 
+    /**
+     * The full meal loop in one shot: dish idea → recipe in the box → linked
+     * into the chosen meal slot → ingredients onto Groceries (skipping things
+     * already on the list, so the family just checks off what's in the pantry).
+     */
+    fun planMeal(ctx: Context, dish: String, date: String, slot: String,
+                 addGroceries: Boolean): String {
+        if (slot !in Meals.SLOTS) throw IllegalArgumentException("unknown meal slot")
+        val rec = JSONObject(recipe(ctx, dish))
+        val title = rec.optString("title").ifEmpty { dish }
+        val recipeId = Meals.addRecipeDirect(ctx, title,
+            rec.optString("ingredients"), rec.optString("steps"))
+        Meals.mutate(ctx, JSONObject()
+            .put("action", "setMeal")
+            .put("date", date)
+            .put("slot", slot)
+            .put("text", title)
+            .put("recipeId", recipeId))
+        var added = 0
+        if (addGroceries) {
+            val existing = HashSet<String>()
+            val lists = JSONArray(FamilyLists.json(ctx))
+            for (i in 0 until lists.length()) {
+                val l = lists.getJSONObject(i)
+                if (!MagicWords.fuzzyEquals(l.optString("name").lowercase(Locale.US), "groceries"))
+                    continue
+                val items = l.optJSONArray("items") ?: continue
+                for (j in 0 until items.length()) {
+                    val it2 = items.getJSONObject(j)
+                    if (!it2.optBoolean("done"))
+                        existing.add(it2.optString("text").lowercase(Locale.US))
+                }
+            }
+            rec.optString("ingredients").split("\n")
+                .map { it.trim().trimStart('-', '•', '*', ' ') }
+                .filter { it.isNotEmpty() }
+                .forEach { line ->
+                    if (existing.none { e -> MagicWords.fuzzyEquals(e, line.lowercase(Locale.US)) }) {
+                        MagicWords.addToList(ctx, "Groceries", line)
+                        added++
+                    }
+                }
+        }
+        return JSONObject().put("title", title).put("groceriesAdded", added).toString()
+    }
+
     /** Dish name → a recipe for the recipe box (returned for review, not saved). */
     fun recipe(ctx: Context, dish: String): String {
         val prompt = """

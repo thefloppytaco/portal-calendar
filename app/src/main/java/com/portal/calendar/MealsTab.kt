@@ -19,11 +19,13 @@ import kotlin.math.roundToInt
  */
 class MealsTab(
     private val ctx: Context,
-    private val showDetail: (title: String, body: String) -> Unit
+    private val showDetail: (title: String, body: String) -> Unit,
+    private val onPlanMeal: () -> Unit = {}
 ) {
 
     private var weekOffset = 0
     private lateinit var rangeLabel: TextView
+    private lateinit var planButton: TextView
     private lateinit var grid: LinearLayout
     val view: LinearLayout = build()
 
@@ -52,6 +54,19 @@ class MealsTab(
             setPadding(dp(12), 0, 0, 0)
         }
         nav.addView(rangeLabel, LinearLayout.LayoutParams(0, WRAP, 1f))
+        planButton = TextView(ctx).apply {
+            text = "✨ Plan"
+            textSize = 15f
+            setTextColor(android.graphics.Color.WHITE)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = rounded(ACCENT, 18)
+            setPadding(dp(16), dp(7), dp(16), dp(7))
+            visibility = android.view.View.GONE
+            setOnClickListener { onPlanMeal() }
+            layoutParams = LinearLayout.LayoutParams(WRAP, WRAP).apply { leftMargin = dp(8) }
+        }
+        nav.addView(planButton)
         nav.addView(pill("‹") { weekOffset--; render() })
         nav.addView(pill("This week") { weekOffset = 0; render() })
         nav.addView(pill("›") { weekOffset++; render() })
@@ -63,6 +78,8 @@ class MealsTab(
     }
 
     fun render() {
+        planButton.visibility =
+            if (Gemini.isReady(ctx)) android.view.View.VISIBLE else android.view.View.GONE
         val ws = Calendar.getInstance()
         ws.set(Calendar.HOUR_OF_DAY, 0); ws.set(Calendar.MINUTE, 0)
         ws.set(Calendar.SECOND, 0); ws.set(Calendar.MILLISECOND, 0)
