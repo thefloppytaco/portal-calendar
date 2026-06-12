@@ -811,8 +811,13 @@ const CHORE_BANK = [
   ['🎵','Practice music'],['🪴','Water the plants']];
 
 function renderChoreBank(){
-  document.getElementById('choreBank').innerHTML = CHORE_BANK.map(([icon, title]) =>
-    `<button class="ghost" style="padding:8px 12px;font-size:13px;"
+  const learned = (choreStatus && choreStatus.suggestions) || [];
+  const picks = learned.map(s => [s.icon, s.title]);
+  CHORE_BANK.forEach(([icon, title]) => {
+    if (!picks.some(([, t]) => t.toLowerCase() === title.toLowerCase())) picks.push([icon, title]);
+  });
+  document.getElementById('choreBank').innerHTML = picks.map(([icon, title], i) =>
+    `<button class="ghost" style="padding:8px 12px;font-size:13px;${i < learned.length ? 'border:1px solid #f0584c;' : ''}"
              onclick="pickBank('${icon}', ${JSON.stringify(title)})">${icon} ${esc(title)}</button>`).join('');
 }
 function pickBank(icon, title){

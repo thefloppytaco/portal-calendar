@@ -197,7 +197,7 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
                 val uid = e.uid?.value ?: title
                 if (!MagicWords.markProcessed(ctx, uid)) continue
                 runCatching {
-                    MagicWords.execute(ctx, MagicWords.parseLoose(ctx, title),
+                    MagicWords.execute(ctx, MagicWords.parseSmart(ctx, title),
                         e.dateStart?.value?.time ?: System.currentTimeMillis())
                 }
             }

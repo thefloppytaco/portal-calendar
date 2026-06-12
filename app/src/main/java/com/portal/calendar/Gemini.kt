@@ -185,6 +185,49 @@ object Gemini {
             .toString()
     }
 
+    /**
+     * One inbox-calendar command → a routed directive. Smarter than the
+     * rule-based parser: free phrasing, picks the best existing list, and
+     * cleans up spelling in the item text. Callers fall back to
+     * [MagicWords.parseLoose] when this throws or no key is set.
+     */
+    fun parseCommand(ctx: Context, title: String): MagicWords.Directive {
+        val members = Members.all(ctx)
+        val lists = JSONArray(FamilyLists.json(ctx)).let { arr ->
+            (0 until arr.length()).joinToString(", ") { arr.getJSONObject(it).optString("name") }
+        }
+        val prompt = """
+            A family sends short commands to their calendar board.
+            Family members: ${members.joinToString(", ") { it.name }}.
+            Existing lists: ${lists.ifEmpty { "(none yet)" }}.
+            Classify this command and clean up obvious typos in the item text
+            (keep the meaning, fix spelling, sentence case):
+            "$title"
+            Respond with STRICT JSON only:
+            {"kind":"list" or "chore" or "todo",
+             "list":string (the best matching existing list, or a sensible new
+                            name like "Groceries"; empty unless kind is "list"),
+             "text":string (the cleaned item or chore title, without the member name),
+             "member":string (a family member's name if the command is for them, else "")}
+            A command about buying/getting food or supplies is a "list" for Groceries.
+            A command telling a member to do something is a "chore".
+        """.trimIndent()
+        val o = JSONObject(generate(ctx, prompt, null, null))
+        val text = o.optString("text").trim().ifEmpty { title }
+        return when (o.optString("kind")) {
+            "chore" -> {
+                val m = members.firstOrNull {
+                    MagicWords.fuzzyEquals(it.name.lowercase(Locale.US),
+                        o.optString("member").lowercase(Locale.US))
+                }
+                MagicWords.Directive("chore", text, memberId = m?.id ?: "")
+            }
+            "list" -> MagicWords.Directive("list", text,
+                listName = o.optString("list").ifEmpty { "To-Do" })
+            else -> MagicWords.Directive("todo", text)
+        }
+    }
+
     /** Executes the proposals the user confirmed on the page. */
     fun applyProposals(ctx: Context, o: JSONObject): String {
         var applied = 0

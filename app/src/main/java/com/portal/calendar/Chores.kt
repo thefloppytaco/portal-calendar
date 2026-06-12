@@ -19,6 +19,7 @@ object Chores {
     private const val FILE = "chores.json"
     private const val DONE = "chore_done.json"
     private const val GOALS = "star_goals.json"
+    private const val HISTORY = "chore_history.json"
     const val DEFAULT_GOAL = 10
 
     private fun dayFmt() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -73,7 +74,33 @@ object Chores {
             .put("stars", stars)
             .put("goals", goals)
             .put("members", JSONArray(Members.json(ctx)))
+            .put("suggestions", suggestions(ctx, chores))
             .toString()
+    }
+
+    /** The family's frequently re-added chores, fuzzy-grouped, active ones excluded. */
+    private fun suggestions(ctx: Context, active: JSONArray): JSONArray {
+        val hist = Data.readArray(ctx, HISTORY)
+        data class Group(val title: String, val icon: String, var count: Int)
+        val groups = ArrayList<Group>()
+        for (i in 0 until hist.length()) {
+            val h = hist.getJSONObject(i)
+            val t = h.optString("title")
+            if (t.isEmpty()) continue
+            val g = groups.find { MagicWords.fuzzyEquals(it.title.lowercase(), t.lowercase()) }
+            if (g != null) g.count++
+            else groups.add(Group(t, h.optString("icon").ifEmpty { "⭐" }, 1))
+        }
+        val activeTitles = (0 until active.length()).map {
+            active.getJSONObject(it).optString("title").lowercase()
+        }
+        val out = JSONArray()
+        groups.filter { g -> g.count >= 2 &&
+                activeTitles.none { MagicWords.fuzzyEquals(it, g.title.lowercase()) } }
+            .sortedByDescending { it.count }
+            .take(8)
+            .forEach { out.put(JSONObject().put("title", it.title).put("icon", it.icon)) }
+        return out
     }
 
     fun mutate(ctx: Context, action: JSONObject): String {
@@ -103,6 +130,14 @@ object Chores {
                     arr.put(chore)
                 }
                 Data.writeArray(ctx, FILE, arr)
+                // Remember what gets added — the composer learns the family's
+                // common chores and offers them as personalized quick-picks.
+                val hist = Data.readArray(ctx, HISTORY)
+                hist.put(JSONObject()
+                    .put("title", title)
+                    .put("icon", action.optString("icon").ifEmpty { "⭐" }))
+                while (hist.length() > 200) hist.remove(0)
+                Data.writeArray(ctx, HISTORY, hist)
             }
             "deleteChore" -> {
                 val arr = Data.readArray(ctx, FILE)

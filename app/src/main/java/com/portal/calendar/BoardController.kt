@@ -324,6 +324,7 @@ class BoardController(private val baseCtx: Context) {
     private lateinit var choreOverlay: FrameLayout
     private lateinit var choreTitleInput: EditText
     private lateinit var choreMemberRow: LinearLayout
+    private lateinit var choreBankRow: LinearLayout
     private val choreSelectedIds = HashSet<String>()
     private lateinit var choreRepeatBtn: TextView
     private lateinit var choreOnceBtn: TextView
@@ -359,6 +360,35 @@ class BoardController(private val baseCtx: Context) {
     }
 
     private fun refreshChoreOverlay() {
+        // Learned suggestions (≥2 past adds) lead; static presets fill in after.
+        choreBankRow.removeAllViews()
+        val picks = ArrayList<Pair<String, String>>()
+        runCatching {
+            val sugg = org.json.JSONObject(Chores.statusJson(ctx)).optJSONArray("suggestions")
+            for (i in 0 until (sugg?.length() ?: 0)) {
+                val s = sugg!!.getJSONObject(i)
+                picks.add(s.optString("icon") to s.optString("title"))
+            }
+        }
+        for (preset in CHORE_BANK) {
+            if (picks.none { MagicWords.fuzzyEquals(it.second.lowercase(), preset.second.lowercase()) })
+                picks.add(preset)
+        }
+        for ((icon, title) in picks) {
+            choreBankRow.addView(TextView(ctx).apply {
+                text = "$icon $title"
+                textSize = 13f
+                setTextColor(INK)
+                background = rounded(PILL, 16)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                setOnClickListener {
+                    choreIcon = icon
+                    choreTitleInput.setText(title)
+                    refreshChoreOverlay()
+                }
+            }, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(6) })
+        }
+
         val members = Members.all(ctx)
         choreMemberRow.removeAllViews()
         for (m in members) {
@@ -412,25 +442,11 @@ class BoardController(private val baseCtx: Context) {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }, lpMatchWrap(bottom = dp(10)))
 
-        // Quick-pick bank --------------------------------------------------
-        val bankRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        for ((icon, title) in CHORE_BANK) {
-            bankRow.addView(TextView(ctx).apply {
-                text = "$icon $title"
-                textSize = 13f
-                setTextColor(INK)
-                background = rounded(PILL, 16)
-                setPadding(dp(12), dp(8), dp(12), dp(8))
-                setOnClickListener {
-                    choreIcon = icon
-                    choreTitleInput.setText(title)
-                    refreshChoreOverlay()
-                }
-            }, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(6) })
-        }
+        // Quick-pick bank: the family's learned favorites first, then presets.
+        choreBankRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         card.addView(android.widget.HorizontalScrollView(ctx).apply {
             isHorizontalScrollBarEnabled = false
-            addView(bankRow)
+            addView(choreBankRow)
         }, LinearLayout.LayoutParams(dp(520), WRAP).apply { bottomMargin = dp(12) })
 
         choreTitleInput = EditText(ctx).apply {

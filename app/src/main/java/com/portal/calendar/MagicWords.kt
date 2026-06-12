@@ -55,6 +55,17 @@ object MagicWords {
         }
     }
 
+    /**
+     * Inbox parsing, best-available: Gemini when a key is configured (free
+     * phrasing + typo cleanup), the rule-based parser otherwise or whenever
+     * the AI call fails — commands never get lost to an outage.
+     */
+    fun parseSmart(ctx: Context, title: String): Directive =
+        if (Gemini.isReady(ctx))
+            runCatching { Gemini.parseCommand(ctx, title) }
+                .getOrElse { parseLoose(ctx, title) }
+        else parseLoose(ctx, title)
+
     /** Loose parsing for inbox calendars — always returns something sensible. */
     fun parseLoose(ctx: Context, title: String): Directive {
         match(title)?.let { return it }
