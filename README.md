@@ -1,134 +1,111 @@
 # Family Calendar for Meta Portal
 
-Turn a discontinued **Meta Portal+ (gen 1)** into an always-on family calendar — a
-wall display that syncs everyone's Google and Apple calendars, color-coded per person,
-with two-way event creation. Think Skylight-style family board, built from a $30
-secondhand Portal.
+[![Latest release](https://img.shields.io/github/v/release/thefloppytaco/portal-calendar)](https://github.com/thefloppytaco/portal-calendar/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+Turn a discontinued **Meta Portal+ (gen 1)** into an always-on family hub — a wall
+display that syncs everyone's Google and Apple calendars, runs chore charts with star
+rewards, keeps shared lists and a meal plan, and (optionally) gets AI superpowers.
+Think commercial family-display subscription, built from a $30 secondhand Portal,
+running entirely on your LAN.
 
 | Week board | Month board |
 |---|---|
 | ![Week view](docs/week-view.png) | ![Month view](docs/month-view.png) |
 
-## What it does
+## Everything it does
 
-- **Always-on board** — live clock, "Today" agenda sidebar, and four calendar views:
-  Day, Week, Month, and Plan (a rolling two-week agenda). Tap a day for its events,
-  tap an event for details. The board always returns to the current week when it
-  takes over the screen.
-- **Chores & star rewards** — chores belong to a family member and repeat on chosen
-  weekdays or run one-time on a date. Kids tap big cards on the Chores tab to complete
-  them and earn stars toward a weekly goal (tally + progress bar per kid). Add chores
-  right on the Portal too: a + Add composer with a quick-pick bank of common chores;
-  long-press a card to remove one.
-- **Shared lists** — groceries, to-dos, packing lists; check things off on the board
-  or from any phone on the Wi-Fi. Optionally link a list **two-way with Google Tasks**
-  to edit it from anywhere.
-- **Magic words & inbox calendars** — title a calendar event `todo: …`, `groceries: …`
-  or `chore: Chani water the plants` from any synced calendar and the board hides it
-  and routes it (lists auto-create; a family member's name assigns the chore on the
-  event's date). Or add a dedicated **Inbox calendar** — hidden on everyone's phones,
-  never rendered on the board — where plain phrases work with no prefix at all:
-  `add oat milk to groceries`, `buy batteries`, `remind Chani to water the plants`.
-  Trigger words, list names and member names are all typo-tolerant.
-- **Meal planner + recipe box** — plan breakfast/lunch/dinner/snack for the week on
-  the page; the board shows the week's menu, and meals linked to a recipe open it
-  on tap.
-- **Weather** — free Open-Meteo forecasts (no API key): current conditions in the
-  sidebar, daily highs in the week header, and an hour-accurate forecast on each
-  event's details. Set the location once on the page.
-- **Kid lock** — an optional 4-digit PIN gates adding events/chores, Settings, and
-  deletions on the touchscreen, while chores and list check-offs stay kid-friendly.
-- **Family members** — one color per person, used consistently across calendars,
-  chores, and stars.
-- **Make it yours** — a live display-size slider (70–160%) that zooms the whole UI
-  (10″ Portals like ~110–125%), and per-feature toggles that hide the Chores, Lists,
-  or Meals tabs entirely if your family doesn't use them.
-- **Syncs any calendar that has an iCal feed** — Google Calendar secret addresses,
-  iCloud public calendar links (`webcal://`), or any other `.ics` URL. One color per
-  person. Recurring events, edited instances, and cancellations all handled.
-- **Replaces the screensaver** — when the Portal idles, the calendar takes over the
-  screen and stays up, 24/7. Toggle it from the setup page.
-- **Add events from the Portal or your phone** — a `+ Add` button on the board, and a
-  web setup page served by the Portal itself (`http://<portal-ip>:8090`, QR code shown
-  on-screen). Events are written into the **real** calendar (iCloud via CalDAV, Google
-  via the Calendar API), so they appear on everyone's phones natively.
-- **Set up everything from a phone or computer** — no typing on the Portal. Add/remove
-  calendars, connect accounts, trigger syncs, flip the screensaver mode.
-- **Survives reboots and offline spells** — feeds are cached on disk; a boot receiver
-  re-arms everything with no computer attached.
+### 📅 Calendar
+- **Four views** — Day, Week, Month, and Plan (a rolling two-week agenda); the
+  always-on takeover lands on the current week.
+- **Reads any iCal feed**: Google Calendar secret addresses, iCloud public links,
+  any `.ics`/`webcal://` URL. Recurring events, edited instances and cancellations
+  handled properly. One color per person.
+- **Two-way event creation** — add events from the board (`+ Add`) or the setup page;
+  they're written into the *real* calendar (iCloud via CalDAV with an app-specific
+  password, Google via its API with your own OAuth client), so they appear on
+  everyone's phones natively.
+- **Weather** — free Open-Meteo forecasts: current conditions in the sidebar, daily
+  highs in the week header, an hour-accurate forecast on each event.
+
+### ⭐ Chores & stars
+- Chores belong to a family member (or **several at once** — one card each), repeat
+  on chosen weekdays or run **one-time** on a date, then retire themselves.
+- Kids tap big cards to complete them and earn stars toward a weekly goal, with a
+  per-kid tally and progress bar.
+- Add chores on the board (`+ Add`, with a quick-pick bank that **learns your
+  family's frequent chores**) or on the page; long-press a card to remove one.
+- Optional **per-kid PIN**: only that kid — or a parent — can check off their chores.
+
+### 📝 Lists, meals & magic words
+- **Shared lists** (groceries, to-dos, packing) editable on the board and from any
+  phone on the Wi-Fi; link any list **two-way with Google Tasks** to use it away
+  from home.
+- **Meal planner** — a week of breakfast/lunch/dinner/snack slots backed by a recipe
+  box; tap a planned meal on the board to read its recipe while cooking.
+- **Magic words** — a calendar event titled `todo: …`, `groceries: …` or
+  `chore: Chani water the plants` is hidden from the board and routed to the right
+  place (typo-tolerant; lists auto-create; a member's name assigns the chore on the
+  event's date).
+- **Inbox calendars** — add a dedicated shared calendar as an *Inbox*: every event in
+  it is a command, nothing from it renders, and no prefixes are needed — plain
+  phrases like `add oat milk to groceries` or `remind Chani to water the plants`
+  just work. Hide the calendar from view on everyone's phones and it clutters nothing.
+
+### ✨ AI (optional, bring your own free Gemini key)
+Entirely opt-in: until the Settings toggle is on **and** a key is saved, no AI
+options appear anywhere. The key is validated against Google's live model list, the
+model picker is populated from it, and calls auto-fall-back if a model is retired.
+- **Smart Import** — paste an email or photograph a school flyer; AI proposes events,
+  list items and chores, and nothing is added until you confirm.
+- **✨ Plan a meal** — name a dish (board or page): AI writes the recipe, slots it
+  into the menu, and creates a **dedicated shopping list named after the recipe** —
+  check off what's in the pantry, shop the rest.
+- **AI recipes** for the recipe box, and **smarter inbox parsing** (free phrasing,
+  typo cleanup) with the rule-based parser as automatic fallback.
+
+### 🛡 Family-proofing
+- **Kid lock** — an optional 4-digit PIN gates adding, Settings, and deletions on
+  the touchscreen, while chore and list check-offs stay kid-friendly.
+- **Feature toggles** — hide the Chores, Lists or Meals tabs entirely.
+- **Display size** — a live slider (70–160%) zooms the whole UI; drag on your phone
+  and watch the board resize (10″ Portals like ~110–125%).
+- **Guided setup wizard** — scan a fresh Portal's QR and a skippable wizard walks
+  through everything above; re-run it anytime from Settings.
 
 ## Requirements
 
 - Meta Portal+ gen 1 (`aloha`, Android 9 / API 28) with **ADB enabled** and the
   [Immortal launcher](https://github.com/starbrightlab/immortal) provisioned.
-  Other Portal models may work but are untested.
-- A Mac/Linux/Windows machine with `adb` for the one-time install.
-- Wi-Fi shared by the Portal and your phone.
+  Other Portal models are untested — reports welcome.
+- A computer with `adb` for the one-time install.
+- Wi-Fi shared by the Portal and your phones.
 
 ## Install
 
-Grab `app-debug.apk` from Releases (or build it — see below), then:
+Grab the APK from [Releases](https://github.com/thefloppytaco/portal-calendar/releases), then:
 
 ```sh
-adb install -r app-debug.apk
+adb install -r portal-calendar.apk
 adb shell am start -n com.portal.calendar/.MainActivity
+
+# Recommended: lets the takeover guard reclaim the screen from the stock
+# photo frame no matter how it got there (it only ever watches for the frame):
+adb shell appops set com.portal.calendar GET_USAGE_STATS allow
 ```
 
-Wireless adb works too: with the Portal plugged in over USB, run `adb tcpip 5555`,
-unplug, then `adb connect <portal-ip>:5555`. Note the TCP mode doesn't survive a
-Portal reboot (no root means it can't be persisted) — replug USB and re-run
-`adb tcpip 5555` after a restart.
+Wireless adb works too: with USB connected once, `adb tcpip 5555`, unplug, then
+`adb connect <portal-ip>:5555` (TCP mode doesn't survive a Portal reboot — replug
+and re-run after restarts).
 
-That's it. The board shows a QR code; everything else happens from your phone.
-
-> **10″ Portal / text too small?** There's a **Display size** control on the setup
-> page (and under ⚙ on the board) that zooms the whole UI from 80% to 140%.
-
-## Setup
-
-### 1. Add the calendars to display (read)
-
-Scan the QR code (or open `http://<portal-ip>:8090` in any browser on the same Wi-Fi)
-and paste each person's calendar link with a name and color:
-
-- **Google**: calendar.google.com → Settings → *your calendar* → Integrate calendar →
-  **"Secret address in iCal format"**. Easiest on a computer — open the setup page
-  there too and copy/paste between tabs. (Step-by-step is on the page itself.)
-- **Apple/iCloud**: iPhone Calendar app → Calendars → ⓘ → **Public Calendar** →
-  Share Link → Copy. `webcal://` links paste straight in.
-
-Every link is test-fetched when you add it, so you know immediately whether it works.
-Treat these links like passwords — they grant read access to the calendar.
-
-### 2. Connect an account for adding events (write, optional)
-
-On the setup page, under **Two-way sync**:
-
-- **iCloud**: enter the Apple ID plus an **app-specific password**
-  (account.apple.com → Sign-In and Security → App-Specific Passwords). Events are
-  created over CalDAV directly in iCloud.
-- **Google**: bring your own (free) OAuth client — create a Google Cloud project,
-  enable the Calendar API, publish the OAuth consent screen (External/production;
-  Testing mode tokens expire weekly), create a **Desktop app** OAuth client, and paste
-  its Client ID/secret into the page. Sign in via the generated link; when the browser
-  dead-ends on a `localhost` URL, paste that URL back (or swap `localhost` for the
-  Portal's IP — the Portal completes it automatically).
-
-Then pick which calendar new events go into. The `+ Add` button on the board and the
-"Add an event" form on the page both write there.
-
-### 3. Make it the screensaver
-
-Flip **"Show the calendar when the Portal idles"** on the setup page. From then on the
-calendar owns the screen whenever the Portal is idle — including waking it back up when
-the Portal tries to sleep. Tap **✕** on the board to get back to the launcher.
-
-Expect a 1–2 second flash of the stock photo frame during the hand-off; that's the
-stock launcher relaunching its own frame on the same system broadcast (see below).
+**That's the whole computer part.** The board shows a QR code; scan it and the
+**setup wizard** walks you through family members, calendars, two-way sync, weather,
+the always-on screen and display size — every step skippable, everything changeable
+later. Add the page to your phone's home screen and it opens like an app.
 
 ## Building from source
 
-Toolchain: JDK 21, Android SDK (compileSdk 36), Gradle wrapper included.
+JDK 21, Android SDK (compileSdk 36), Gradle wrapper included:
 
 ```sh
 JAVA_HOME=$(/usr/libexec/java_home -v 21) \
@@ -139,33 +116,34 @@ ANDROID_HOME=/path/to/android-sdk \
 
 ## How it works (the interesting bits)
 
-The Portal is a locked-down Android 9 device: no Google Play Services (so no normal
-Google sign-in), no root, locked bootloader. The design works within that:
+The Portal is locked-down Android 9: no Google Play Services, no root, locked
+bootloader. The design works within that:
 
-- **Reading calendars** uses plain ICS feeds (the one auth-free, universal interface),
-  parsed with [biweekly](https://github.com/mangstadt/biweekly). Recurrence rules are
-  expanded properly, including `RECURRENCE-ID` overrides for edited instances.
-- **Writing events** can't use feeds, so there are two real backends: CalDAV for
-  iCloud (app-specific password; PROPFIND discovery → PUT VEVENT, via OkHttp because
-  `HttpURLConnection` refuses the PROPFIND verb) and the Google Calendar REST API
-  with a bring-your-own Desktop OAuth client.
-- **The screensaver takeover** doesn't register a DreamService — the launcher
-  re-asserts `screensaver_components` on every boot/resume, an unwinnable fight.
-  Instead the app listens for `ACTION_DREAMING_STARTED` and ends the dream with a
-  `SCREEN_BRIGHT_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP` wakelock (dream windows draw above
-  activities, so you must end the dream, not draw over it), then relaunches the board
-  after the dust settles. `ACTION_SCREEN_OFF` is handled the same way, because the
-  Portal's presence policy skips the screensaver entirely when it thinks the room is
-  empty. A minimal foreground service keeps the process alive to hear the broadcasts.
-- **The setup page** is served from the Portal itself by NanoHTTPD on `:8090` — no
-  cloud, no accounts, nothing leaves your LAN.
+- **Reading calendars** uses plain ICS feeds — the one auth-free universal interface —
+  parsed with [biweekly](https://github.com/mangstadt/biweekly), including proper
+  `RECURRENCE-ID` override handling.
+- **Writing** uses real APIs: CalDAV for iCloud (OkHttp, because `HttpURLConnection`
+  refuses the PROPFIND verb) and Google's Calendar/Tasks REST with a bring-your-own
+  Desktop OAuth client (the sign-in dead-ends on a localhost URL you paste back —
+  or swap `localhost` for the Portal's IP and the Portal finishes it itself).
+- **The screensaver takeover** is a small war story. The stock launcher re-asserts
+  the system screensaver setting on every resume, dream windows draw *above*
+  activities, and the Portal's presence policy sometimes skips the screensaver and
+  sleeps directly. So the app listens for dream/screen-off broadcasts, wakes the
+  device with an `ACQUIRE_CAUSES_WAKEUP` wakelock, relaunches the board in a timed
+  salvo — and, with the optional usage-stats grant, a 30-second guard reclaims the
+  screen from the stock photo frame no matter what path it snuck in through.
+- **The setup page** is served from the Portal itself (NanoHTTPD on `:8090`) as an
+  installable PWA. No cloud, no accounts; nothing leaves your LAN except the feed
+  fetches and the APIs you explicitly connect.
 
 ## Privacy & security
 
-Everything stays on the device and your LAN. Calendar URLs, the iCloud app-specific
-password, and Google OAuth tokens are stored only in the app's private storage on the
-Portal. The setup page is unauthenticated by design (anyone on your Wi-Fi can open
-it) — treat your home network accordingly.
+Calendar URLs, the iCloud app-specific password, Google OAuth tokens, and the
+optional Gemini key live only in the app's private storage on the Portal. Treat
+secret calendar links like passwords. The setup page is unauthenticated by design —
+anyone on your Wi-Fi can open it — so treat your home network accordingly. The
+optional usage-stats permission is used solely to detect the stock photo frame.
 
 ## License
 

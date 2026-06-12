@@ -71,7 +71,9 @@ class KeepAliveService : Service() {
         if (!hasUsageAccess()) return false
         val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val now = System.currentTimeMillis()
-        val events = usm.queryEvents(now - 5 * 60_000, now)
+        // Wide window: the frame may have been foreground for hours with no
+        // app switches since — a short scan would find no events and miss it.
+        val events = usm.queryEvents(now - 12 * 60 * 60_000, now)
         var lastPkg = ""
         var lastCls = ""
         val ev = UsageEvents.Event()

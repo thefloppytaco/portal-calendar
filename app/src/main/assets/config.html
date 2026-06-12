@@ -731,9 +731,16 @@ scaleSlider.addEventListener('change', async () => {
 });
 
 // ----- tabs -----
+let currentTabName = 'calendar';
 function showTab(name){
+  currentTabName = name;
   document.querySelectorAll('[data-tab]').forEach(el =>
     el.style.display = el.dataset.tab === name ? '' : 'none');
+  // AI cards additionally require AI to be ready — tab logic wins otherwise.
+  if (!aiState.enabled || !aiState.hasKey) {
+    document.getElementById('aiImportCard').style.display = 'none';
+    document.getElementById('aiMealCard').style.display = 'none';
+  }
   document.querySelectorAll('[data-tabbtn]').forEach(b =>
     b.className = b.dataset.tabbtn === name ? '' : 'ghost');
   if (name === 'lists') loadListsP();
@@ -1164,10 +1171,9 @@ function applyAi(st){
   document.getElementById('aiToggle').checked = st.enabled;
   document.getElementById('aiConfig').style.display = st.enabled ? 'block' : 'none';
   const ready = st.enabled && st.hasKey;
-  document.getElementById('aiImportCard').style.display = ready ? '' : 'none';
   document.getElementById('aiRecipeRow').style.display = ready ? 'flex' : 'none';
-  document.getElementById('aiMealCard').style.display = ready ? '' : 'none';
   if (ready) aiMealDays();
+  showTab(currentTabName); // re-apply tab visibility with the new AI state
   const row = document.getElementById('aiModelRow');
   if (st.hasKey && st.models.length) {
     row.style.display = 'block';
@@ -1345,7 +1351,8 @@ const WIZ_STEPS = [
   { kicker: 'STEP 1 · FAMILY', title: 'Who’s in the family?',
     body: () => `
       <div class="wiz-sub">Each person gets a color that follows them everywhere —
-      their events, their chores, their stars.</div>
+      their events, their chores, their stars. (Later, on the Family tab, you can
+      also give each kid an optional PIN so only they can check off their chores.)</div>
       <div class="card" id="wizMembersBox"></div>
       <button class="ghost" style="width:100%;" onclick="wizAddMemberRow()">+ Add another person</button>`,
     onShow: async () => {
@@ -1426,21 +1433,30 @@ const WIZ_STEPS = [
         Chores tab here. Long-press a card on the board to remove it.</div>
       </div>
       <div class="card">
-        <strong>Lists</strong>
+        <strong>Lists &amp; meals</strong>
         <div class="wiz-sub" style="margin:6px 0 0;">Groceries, to-dos, packing — the
-        <strong>Lists</strong> tab works on the board and on this page from any phone.
-        Pro move: a calendar event titled <code>groceries: oat milk</code> from anywhere
-        lands straight on the list. Meals work the same way on the
-        <strong>Meals</strong> tab.</div>
+        <strong>Lists</strong> tab works on the board and on this page from any phone,
+        and any list can sync two-way with <strong>Google Tasks</strong> for editing
+        away from home. The <strong>Meals</strong> tab plans the week's breakfasts
+        through snacks, with a recipe box behind it. Pro move: a calendar event titled
+        <code>groceries: oat milk</code> from anywhere lands straight on the list.</div>
+      </div>
+      <div class="card">
+        <strong>Parents stay in charge</strong>
+        <div class="wiz-sub" style="margin:6px 0 0;">A <strong>kid lock</strong> PIN
+        (Settings) gates adding and deleting things on the touchscreen, and Settings
+        also lets you switch whole tabs off if your family doesn't use them.</div>
       </div>`,
     next: 'Continue' },
 
   { kicker: 'STEP 6 · AI (OPTIONAL)', title: 'Add superpowers with a Gemini key',
     body: () => `
-      <div class="wiz-sub">Optional: with a free Google AI key, the page gains
+      <div class="wiz-sub">Optional: a free Google AI key unlocks
       <strong>Smart Import</strong> (photograph a school flyer → events, lists and chores,
-      confirmed by you) and <strong>AI recipes</strong>. Without a key, these features stay
-      completely hidden.</div>
+      confirmed by you), <strong>✨ Plan a meal</strong> (recipe + menu slot + its own
+      shopping list in one tap), <strong>AI recipes</strong>, and smarter understanding
+      of inbox-calendar commands — typos and all. Without a key, all of it stays
+      completely hidden and everything else works normally.</div>
       <div class="card">
         <input type="text" id="wizAiKey" placeholder="Paste a Google AI API key (AIza…)" autocomplete="off">
         <div style="font-size:13px;color:#737983;">Free at
