@@ -323,7 +323,8 @@ class BoardController(private val baseCtx: Context) {
 
     private lateinit var choreOverlay: FrameLayout
     private lateinit var choreTitleInput: EditText
-    private lateinit var choreMemberBtn: TextView
+    private lateinit var choreMemberRow: LinearLayout
+    private val choreSelectedIds = HashSet<String>()
     private lateinit var choreRepeatBtn: TextView
     private lateinit var choreOnceBtn: TextView
     private lateinit var choreDaysRow: LinearLayout
@@ -331,7 +332,6 @@ class BoardController(private val baseCtx: Context) {
     private lateinit var choreDateLabel: TextView
     private lateinit var choreMsg: TextView
     private var choreIcon = "⭐"
-    private var choreMemberIndex = 0
     private var choreOneTime = false
     private var choreDate: Calendar = Calendar.getInstance()
     private val choreDays = sortedSetOf(1, 2, 3, 4, 5, 6, 7)
@@ -348,7 +348,8 @@ class BoardController(private val baseCtx: Context) {
         }
         choreTitleInput.setText("")
         choreIcon = "⭐"
-        choreMemberIndex = 0
+        choreSelectedIds.clear()
+        members.firstOrNull()?.let { choreSelectedIds.add(it.id) }
         choreOneTime = false
         choreDate = Calendar.getInstance()
         choreDays.clear(); choreDays.addAll(1..7)
@@ -359,11 +360,22 @@ class BoardController(private val baseCtx: Context) {
 
     private fun refreshChoreOverlay() {
         val members = Members.all(ctx)
-        if (members.isNotEmpty()) {
-            val m = members[choreMemberIndex.coerceIn(members.indices)]
-            choreMemberBtn.text = m.name
-            choreMemberBtn.background = rounded(m.color, 18)
-            choreMemberBtn.setTextColor(Color.WHITE)
+        choreMemberRow.removeAllViews()
+        for (m in members) {
+            val selected = choreSelectedIds.contains(m.id)
+            choreMemberRow.addView(TextView(ctx).apply {
+                text = m.name
+                textSize = 14f
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                background = rounded(if (selected) m.color else PILL, 18)
+                setTextColor(if (selected) Color.WHITE else INK)
+                setPadding(dp(16), dp(7), dp(16), dp(7))
+                setOnClickListener {
+                    if (!choreSelectedIds.remove(m.id)) choreSelectedIds.add(m.id)
+                    refreshChoreOverlay()
+                }
+            }, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(8) })
         }
         choreRepeatBtn.background = rounded(if (!choreOneTime) ACCENT else PILL, 18)
         choreRepeatBtn.setTextColor(if (!choreOneTime) Color.WHITE else INK)
@@ -443,21 +455,9 @@ class BoardController(private val baseCtx: Context) {
             setTextColor(MUTED)
             layoutParams = LinearLayout.LayoutParams(dp(50), WRAP)
         })
-        choreMemberBtn = TextView(ctx).apply {
-            textSize = 15f
-            gravity = Gravity.CENTER
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setPadding(dp(18), dp(7), dp(18), dp(7))
-            setOnClickListener {
-                val members = Members.all(ctx)
-                if (members.size > 1) {
-                    choreMemberIndex = (choreMemberIndex + 1) % members.size
-                    refreshChoreOverlay()
-                }
-            }
-        }
-        whoRow.addView(choreMemberBtn)
-        whoRow.addView(spacer(dp(16)))
+        choreMemberRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        whoRow.addView(choreMemberRow, LinearLayout.LayoutParams(0, WRAP, 1f))
+        whoRow.addView(spacer(dp(8)))
         choreRepeatBtn = TextView(ctx).apply {
             text = "Repeats"
             textSize = 14f
@@ -548,15 +548,13 @@ class BoardController(private val baseCtx: Context) {
         val title = choreTitleInput.text.toString().trim()
         if (title.isEmpty()) { choreMsg.text = "Pick from the bank or type a chore"; return }
         if (!choreOneTime && choreDays.isEmpty()) { choreMsg.text = "Pick at least one day"; return }
-        val members = Members.all(ctx)
-        if (members.isEmpty()) { choreMsg.text = "Add family members on the page first"; return }
-        val m = members[choreMemberIndex.coerceIn(members.indices)]
+        if (choreSelectedIds.isEmpty()) { choreMsg.text = "Pick at least one person"; return }
         runCatching {
             val action = org.json.JSONObject()
                 .put("action", "addChore")
                 .put("title", title)
                 .put("icon", choreIcon)
-                .put("memberId", m.id)
+                .put("memberIds", org.json.JSONArray(choreSelectedIds.toList()))
             if (choreOneTime) {
                 action.put("oneTime", true)
                 action.put("date", SimpleDateFormat("yyyy-MM-dd", Locale.US).format(choreDate.time))
@@ -633,12 +631,20 @@ class BoardController(private val baseCtx: Context) {
 
     private lateinit var pinOverlay: FrameLayout
     private lateinit var pinDots: TextView
+    private lateinit var pinTitle: TextView
     private var pinEntry = ""
+    private var pinExpected = ""
     private var pinAction: (() -> Unit)? = null
 
-    /** Runs [action] directly when no PIN is set; otherwise asks for it. */
-    private fun requirePin(action: () -> Unit) {
-        if (store.pin().isEmpty()) { action(); return }
+    /** Parent gate: runs [action] directly when no kid-lock PIN is set. */
+    private fun requirePin(action: () -> Unit) =
+        askPin(store.pin(), "Parents only 🔒", action)
+
+    /** Generic gate — any expected PIN (e.g. a kid's own chore PIN). */
+    private fun askPin(expected: String, title: String, action: () -> Unit) {
+        if (expected.isEmpty()) { action(); return }
+        pinExpected = expected
+        pinTitle.text = title
         pinEntry = ""
         pinAction = action
         updatePinDots()
@@ -659,12 +665,13 @@ class BoardController(private val baseCtx: Context) {
             setPadding(dp(34), dp(22), dp(34), dp(18))
             isClickable = true
         }
-        card.addView(TextView(ctx).apply {
+        pinTitle = TextView(ctx).apply {
             text = "Parents only 🔒"
             textSize = 18f
             setTextColor(INK)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        }, lpMatchWrap(bottom = dp(10)))
+        }
+        card.addView(pinTitle, lpMatchWrap(bottom = dp(10)))
         pinDots = TextView(ctx).apply {
             textSize = 26f
             setTextColor(INK)
@@ -706,7 +713,8 @@ class BoardController(private val baseCtx: Context) {
         }
         updatePinDots()
         if (pinEntry.length == 4) {
-            if (pinEntry == store.pin()) {
+            // The parent kid-lock PIN always works as an override.
+            if (pinEntry == pinExpected || (store.pin().isNotEmpty() && pinEntry == store.pin())) {
                 pinOverlay.visibility = View.GONE
                 pinAction?.invoke()
                 pinAction = null
@@ -854,6 +862,9 @@ class BoardController(private val baseCtx: Context) {
         area.addView(listsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
         choresTab = ChoresTab(ctx,
             onAddChore = { requirePin { showChoreOverlay() } },
+            onGate = { memberPin, memberName, action ->
+                askPin(memberPin, "$memberName's PIN ⭐", action)
+            },
             onRemoveChore = { id, label ->
                 requirePin {
                     confirm("Remove this chore?", label, "Remove") {

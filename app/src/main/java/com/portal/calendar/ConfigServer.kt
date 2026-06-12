@@ -81,6 +81,26 @@ class ConfigServer(
             json(Meals.statusJson(ctx))
         s.uri == "/api/meals" && s.method == Method.POST ->
             json(Meals.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/ai" && s.method == Method.GET ->
+            json(Gemini.statusJson(ctx))
+        s.uri == "/api/ai" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(Gemini.setConfig(ctx,
+                if (o.has("enabled")) o.getBoolean("enabled") else null,
+                if (o.has("key")) o.getString("key") else null,
+                if (o.has("model")) o.getString("model") else null))
+        }
+        s.uri == "/api/ai/import" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(Gemini.smartImport(ctx,
+                o.optString("text").takeIf { it.isNotEmpty() },
+                o.optString("image").takeIf { it.isNotEmpty() },
+                o.optString("mime").takeIf { it.isNotEmpty() }))
+        }
+        s.uri == "/api/ai/apply" && s.method == Method.POST ->
+            json(Gemini.applyProposals(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/ai/recipe" && s.method == Method.POST ->
+            json(Gemini.recipe(ctx, org.json.JSONObject(readBody(s)).getString("dish")))
         s.uri == "/api/setup" && s.method == Method.GET ->
             json("{\"fresh\":${store.feeds().isEmpty() && !store.wizardDone()}}")
         s.uri == "/api/setup" && s.method == Method.POST -> {

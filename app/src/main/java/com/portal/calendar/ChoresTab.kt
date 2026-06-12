@@ -25,6 +25,8 @@ import kotlin.math.roundToInt
 class ChoresTab(
     private val ctx: Context,
     private val onAddChore: () -> Unit = {},
+    private val onGate: (memberPin: String, memberName: String, action: () -> Unit) -> Unit =
+        { _, _, action -> action() },
     private val onRemoveChore: (id: String, label: String) -> Unit = { _, _ -> }
 ) {
 
@@ -197,12 +199,14 @@ class ChoresTab(
                     true
                 }
                 card.setOnClickListener {
-                    // Quick bounce, then toggle (re-render arrives via listener).
+                    // Quick bounce, then toggle — behind the kid's own PIN if set.
                     card.animate().scaleX(0.93f).scaleY(0.93f).setDuration(80).withEndAction {
                         card.animate().scaleX(1f).scaleY(1f).setDuration(80).start()
-                        runCatching {
-                            Chores.mutate(ctx, JSONObject()
-                                .put("action", "toggle").put("choreId", c.optString("id")))
+                        onGate(member?.optString("pin") ?: "", name) {
+                            runCatching {
+                                Chores.mutate(ctx, JSONObject()
+                                    .put("action", "toggle").put("choreId", c.optString("id")))
+                            }
                         }
                     }.start()
                 }

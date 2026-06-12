@@ -56,10 +56,14 @@ object Members {
             val name = o.optString("name").trim()
             if (name.isEmpty()) throw IllegalArgumentException("member #${i + 1} has no name")
             parse(o.optString("color")) // validate
+            val pin = o.optString("pin").trim()
+            if (pin.isNotEmpty() && !pin.matches(Regex("\\d{4}")))
+                throw IllegalArgumentException("$name's PIN must be 4 digits (or empty)")
             clean.put(JSONObject()
                 .put("id", o.optString("id").ifEmpty { UUID.randomUUID().toString() })
                 .put("name", name)
-                .put("color", o.optString("color")))
+                .put("color", o.optString("color"))
+                .put("pin", pin))
         }
         Data.writeArray(ctx, FILE, clean)
         App.instance.notifyDataChanged()

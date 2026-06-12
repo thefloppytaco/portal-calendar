@@ -127,7 +127,7 @@ object MagicWords {
     }
 
     /** Fuzzy find-or-create, so "groceres" can't spawn a duplicate list. */
-    private fun addToList(ctx: Context, requestedName: String, item: String) {
+    fun addToList(ctx: Context, requestedName: String, item: String) {
         val lists = JSONArray(FamilyLists.json(ctx))
         var listId: String? = null
         for (i in 0 until lists.length()) {

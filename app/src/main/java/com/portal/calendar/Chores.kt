@@ -81,20 +81,27 @@ object Chores {
             "addChore" -> {
                 val title = action.getString("title").trim()
                 if (title.isEmpty()) throw IllegalArgumentException("the chore needs a name")
+                // One chore per assignee — "memberIds" assigns several kids at once.
+                val ids = action.optJSONArray("memberIds")
+                val targets = if (ids != null && ids.length() > 0)
+                    (0 until ids.length()).map { ids.optString(it) }
+                else listOf(action.optString("memberId"))
                 val arr = Data.readArray(ctx, FILE)
-                val chore = JSONObject()
-                    .put("id", UUID.randomUUID().toString())
-                    .put("title", title)
-                    .put("memberId", action.optString("memberId"))
-                    .put("icon", action.optString("icon").ifEmpty { "⭐" })
-                if (action.optBoolean("oneTime", false)) {
-                    chore.put("oneTime", true)
-                    chore.put("date", action.optString("date").ifEmpty { dayFmt().format(Date()) })
-                } else {
-                    chore.put("days", action.optJSONArray("days")
-                        ?: JSONArray(listOf(1, 2, 3, 4, 5, 6, 7)))
+                for (mid in targets) {
+                    val chore = JSONObject()
+                        .put("id", UUID.randomUUID().toString())
+                        .put("title", title)
+                        .put("memberId", mid)
+                        .put("icon", action.optString("icon").ifEmpty { "⭐" })
+                    if (action.optBoolean("oneTime", false)) {
+                        chore.put("oneTime", true)
+                        chore.put("date", action.optString("date").ifEmpty { dayFmt().format(Date()) })
+                    } else {
+                        chore.put("days", action.optJSONArray("days")
+                            ?: JSONArray(listOf(1, 2, 3, 4, 5, 6, 7)))
+                    }
+                    arr.put(chore)
                 }
-                arr.put(chore)
                 Data.writeArray(ctx, FILE, arr)
             }
             "deleteChore" -> {
