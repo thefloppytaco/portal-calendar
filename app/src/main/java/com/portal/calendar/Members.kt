@@ -51,20 +51,53 @@ object Members {
         return Data.readArray(ctx, FILE).toString()
     }
 
-    /** Full replace from the config page; keeps ids stable, assigns new ones. */
+    /**
+     * Members for the HTTP API — never ships the PINs themselves (any device
+     * on the Wi-Fi can GET these; a kid could read a sibling's PIN). The page
+     * only needs to know whether one is set.
+     */
+    fun publicJson(ctx: Context): String {
+        all(ctx) // trigger seeding
+        val arr = Data.readArray(ctx, FILE)
+        val out = JSONArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            out.put(JSONObject()
+                .put("id", o.optString("id"))
+                .put("name", o.optString("name"))
+                .put("color", o.optString("color"))
+                .put("hasPin", o.optString("pin").isNotEmpty()))
+        }
+        return out.toString()
+    }
+
+    /**
+     * Full replace from the config page; keeps ids stable, assigns new ones.
+     * A member arriving WITHOUT a "pin" key keeps their existing PIN (the
+     * page no longer sees PINs, so it omits the key unless the field was
+     * actually typed in; "" explicitly clears).
+     */
     fun save(ctx: Context, json: String) {
         val incoming = JSONArray(json)
+        val current = Data.readArray(ctx, FILE)
+        val currentPin = HashMap<String, String>()
+        for (i in 0 until current.length()) {
+            val o = current.getJSONObject(i)
+            currentPin[o.optString("id")] = o.optString("pin")
+        }
         val clean = JSONArray()
         for (i in 0 until incoming.length()) {
             val o = incoming.getJSONObject(i)
             val name = o.optString("name").trim()
             if (name.isEmpty()) throw IllegalArgumentException("member #${i + 1} has no name")
             parse(o.optString("color")) // validate
-            val pin = o.optString("pin").trim()
+            val id = o.optString("id").ifEmpty { UUID.randomUUID().toString() }
+            val pin = if (o.has("pin")) o.optString("pin").trim()
+                      else currentPin[id] ?: ""
             if (pin.isNotEmpty() && !pin.matches(Regex("\\d{4}")))
                 throw IllegalArgumentException("$name's PIN must be 4 digits (or empty)")
             clean.put(JSONObject()
-                .put("id", o.optString("id").ifEmpty { UUID.randomUUID().toString() })
+                .put("id", id)
                 .put("name", name)
                 .put("color", o.optString("color"))
                 .put("pin", pin))

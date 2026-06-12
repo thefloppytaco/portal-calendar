@@ -14,8 +14,14 @@ class ConfigServer(
     private val onConfigChanged: () -> Unit
 ) : NanoHTTPD(PORT) {
 
+    private class BodyTooLarge : Exception("request body too large")
+
     override fun serve(session: IHTTPSession): Response = try {
         route(session)
+    } catch (e: BodyTooLarge) {
+        // The unread body is still on the socket — don't let keep-alive reuse it.
+        newFixedLengthResponse(Response.Status.PAYLOAD_TOO_LARGE, "application/json",
+            "{\"error\":\"request too large\"}").apply { addHeader("connection", "close") }
     } catch (e: IllegalArgumentException) {
         newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
             "{\"error\":${jsonStr(e.message ?: "invalid input")}}")
@@ -37,6 +43,7 @@ class ConfigServer(
             json("{\"ok\":true}")
         }
         s.uri == "/api/sync" && s.method == Method.POST -> {
+            readBody(s) // drain — an unread body corrupts the next keep-alive request
             onConfigChanged()
             json("{\"ok\":true}")
         }
@@ -56,10 +63,10 @@ class ConfigServer(
                 "<rect x=\"24\" y=\"56\" width=\"44\" height=\"9\" rx=\"4.5\" fill=\"#F2A93B\"/>" +
                 "<rect x=\"24\" y=\"70\" width=\"24\" height=\"9\" rx=\"4.5\" fill=\"#4FA3E3\"/></svg>")
         s.uri == "/api/members" && s.method == Method.GET ->
-            json(Members.json(ctx))
+            json(Members.publicJson(ctx)) // PINs never go over HTTP
         s.uri == "/api/members" && s.method == Method.POST -> {
             Members.save(ctx, readBody(s))
-            json(Members.json(ctx))
+            json(Members.publicJson(ctx))
         }
         s.uri == "/api/lists" && s.method == Method.GET ->
             json(FamilyLists.json(ctx))
@@ -150,6 +157,7 @@ class ConfigServer(
             json(Weather.statusJson(ctx))
         }
         s.uri == "/api/weather/clear" && s.method == Method.POST -> {
+            readBody(s) // drain
             Weather.clear(ctx)
             App.instance.notifyDataChanged()
             json(Weather.statusJson(ctx))
@@ -168,6 +176,7 @@ class ConfigServer(
             json(Writers.statusJson(ctx))
         }
         s.uri == "/api/icloud/disconnect" && s.method == Method.POST -> {
+            readBody(s) // drain
             CalDav.disconnect(ctx)
             Writers.ensureDefault(ctx)
             json(Writers.statusJson(ctx))
@@ -183,6 +192,7 @@ class ConfigServer(
             json(Writers.statusJson(ctx))
         }
         s.uri == "/api/google/disconnect" && s.method == Method.POST -> {
+            readBody(s) // drain
             GoogleCal.disconnect(ctx)
             Writers.ensureDefault(ctx)
             json(Writers.statusJson(ctx))
@@ -207,8 +217,10 @@ class ConfigServer(
             val title = o.getString("title").trim()
             if (title.isEmpty()) throw IllegalArgumentException("the event needs a title")
             val allDay = o.optBoolean("allDay", false)
+            // optString turns a JSON null into the string "null" — normalize.
+            val time = o.optString("time").takeIf { it.isNotEmpty() && it != "null" }
             val (start, end) = CalDav.eventWindow(
-                o.getString("date"), o.optString("time", null),
+                o.getString("date"), time,
                 o.optInt("durationMins", 60), allDay)
             Writers.addEvent(ctx, title, start, end, allDay)
             onConfigChanged() // pull feeds so the new event shows up ASAP
@@ -250,6 +262,9 @@ class ConfigServer(
      */
     private fun readBody(s: IHTTPSession): String {
         val len = s.headers["content-length"]?.toIntOrNull() ?: 0
+        // A bogus/hostile Content-Length would otherwise allocate the whole
+        // claimed size on a 256MB-heap device → OOM → process death.
+        if (len > MAX_BODY) throw BodyTooLarge()
         if (len <= 0) {
             val files = HashMap<String, String>()
             s.parseBody(files)
@@ -268,10 +283,14 @@ class ConfigServer(
     private fun json(body: String) =
         newFixedLengthResponse(Response.Status.OK, "application/json", body)
 
-    private fun jsonStr(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    // org.json handles control characters too (raw \n in an error message
+    // would otherwise produce an unparsable error response).
+    private fun jsonStr(s: String): String = org.json.JSONObject.quote(s)
 
     companion object {
         // portal-remote already owns 8080 on this device.
         const val PORT = 8090
+        // Generous for base64 photos on /api/ai/import, tiny vs the heap.
+        const val MAX_BODY = 16 * 1024 * 1024
     }
 }

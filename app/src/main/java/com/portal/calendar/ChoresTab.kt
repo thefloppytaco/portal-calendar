@@ -68,7 +68,8 @@ class ChoresTab(
     }
 
     fun render() {
-        val status = JSONObject(Chores.statusJson(ctx))
+        // includePins: the board's own PIN pad gates chore check-offs.
+        val status = JSONObject(Chores.statusJson(ctx, includePins = true))
         val chores = status.getJSONArray("chores")
         val doneToday = toSet(status.getJSONArray("doneToday"))
         val stars = status.getJSONObject("stars")

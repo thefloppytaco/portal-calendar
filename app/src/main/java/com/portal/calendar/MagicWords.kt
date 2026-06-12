@@ -171,15 +171,38 @@ object MagicWords {
 
     // ------------------------------------------------------------ plumbing
 
-    /** True the first time a UID is seen; remembers it (capped log). */
-    @Synchronized
-    fun markProcessed(ctx: Context, uid: String): Boolean {
+    /**
+     * Processed-command log. Entries are {uid, ts} so eviction is by AGE, not
+     * a small FIFO — inbox events live in the feed forever, and a FIFO that
+     * evicts a still-present UID re-executes that command (rolling duplicates
+     * once the family passes the cap). Old entries (~13 months) age out long
+     * after any feed stops re-serving them; legacy bare-string entries are
+     * understood and migrated as they're touched.
+     */
+    fun isProcessed(ctx: Context, uid: String): Boolean {
         val arr = Data.readArray(ctx, DONE_FILE)
-        for (i in 0 until arr.length()) if (arr.optString(i) == uid) return false
-        arr.put(uid)
-        while (arr.length() > 500) arr.remove(0)
-        Data.writeArray(ctx, DONE_FILE, arr)
-        return true
+        for (i in 0 until arr.length()) {
+            val e = arr.opt(i)
+            val seen = (e as? JSONObject)?.optString("uid") ?: (e as? String)
+            if (seen == uid) return true
+        }
+        return false
+    }
+
+    fun markProcessed(ctx: Context, uid: String) {
+        val now = System.currentTimeMillis()
+        val cutoff = now - 400L * 24 * 3600 * 1000
+        Data.mutate(ctx, DONE_FILE) { arr ->
+            for (i in arr.length() - 1 downTo 0) {
+                val e = arr.opt(i)
+                val uidI = (e as? JSONObject)?.optString("uid") ?: (e as? String)
+                val ts = (e as? JSONObject)?.optLong("ts", now) ?: now // legacy: keep
+                if (uidI == uid) arr.remove(i)            // re-mark refreshes ts
+                else if (ts < cutoff) arr.remove(i)       // age out
+            }
+            arr.put(JSONObject().put("uid", uid).put("ts", now))
+            while (arr.length() > 5000) arr.remove(0)     // absolute backstop
+        }
     }
 
     /** Singular/plural-blind, small-edit-distance equality. */

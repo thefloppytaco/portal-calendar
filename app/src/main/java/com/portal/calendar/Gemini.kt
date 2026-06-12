@@ -70,23 +70,30 @@ object Gemini {
 
     /** Models on this key that support generateContent (names without "models/"). */
     private fun listModels(key: String): List<String> {
-        val req = Request.Builder().url("$BASE/models?pageSize=50&key=$key").build()
-        client.newCall(req).execute().use { resp ->
-            if (resp.code == 400 || resp.code == 403)
-                throw IllegalArgumentException("Google rejected that API key — copy it from aistudio.google.com → Get API key")
-            if (resp.code !in 200..299)
-                throw IllegalArgumentException("couldn't reach Google AI (HTTP ${resp.code})")
-            val models = JSONObject(resp.body?.string() ?: "{}").optJSONArray("models") ?: JSONArray()
-            val out = ArrayList<String>()
-            for (i in 0 until models.length()) {
-                val m = models.getJSONObject(i)
-                val methods = m.optJSONArray("supportedGenerationMethods") ?: JSONArray()
-                val supportsGenerate = (0 until methods.length())
-                    .any { methods.optString(it) == "generateContent" }
-                if (supportsGenerate) out.add(m.optString("name").removePrefix("models/"))
+        val out = ArrayList<String>()
+        var pageToken: String? = null
+        do { // the list spans pages now — one page can miss newer models
+            val url = "$BASE/models?pageSize=50&key=$key" +
+                (pageToken?.let { "&pageToken=$it" } ?: "")
+            val req = Request.Builder().url(url).build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.code == 400 || resp.code == 403)
+                    throw IllegalArgumentException("Google rejected that API key — copy it from aistudio.google.com → Get API key")
+                if (resp.code !in 200..299)
+                    throw IllegalArgumentException("couldn't reach Google AI (HTTP ${resp.code})")
+                val body = JSONObject(resp.body?.string() ?: "{}")
+                val models = body.optJSONArray("models") ?: JSONArray()
+                for (i in 0 until models.length()) {
+                    val m = models.getJSONObject(i)
+                    val methods = m.optJSONArray("supportedGenerationMethods") ?: JSONArray()
+                    val supportsGenerate = (0 until methods.length())
+                        .any { methods.optString(it) == "generateContent" }
+                    if (supportsGenerate) out.add(m.optString("name").removePrefix("models/"))
+                }
+                pageToken = body.optString("nextPageToken").ifEmpty { null }
             }
-            return out
-        }
+        } while (pageToken != null)
+        return out
     }
 
     /** Prefer the newest flash-class model: cheap, fast, plenty for this job. */
@@ -108,7 +115,13 @@ object Gemini {
             if (fallback.isEmpty()) throw IllegalArgumentException("the Gemini model is unavailable — re-save the key in Settings to refresh the list")
             val next = pickDefault(fallback)
             prefs(ctx).edit().putString("ai_model", next).apply()
-            callModel(key, next, prompt, imageB64, mime)
+            try {
+                callModel(key, next, prompt, imageB64, mime)
+            } catch (e2: ModelGoneException) {
+                // Both stale — tell the user something actionable, not "ModelGoneException".
+                throw IllegalArgumentException(
+                    "the Gemini model list is out of date — re-save the key in Settings to refresh it")
+            }
         }
     }
 

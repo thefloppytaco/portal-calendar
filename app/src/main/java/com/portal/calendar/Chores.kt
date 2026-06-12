@@ -27,7 +27,8 @@ object Chores {
 
     private fun dayFmt() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    fun statusJson(ctx: Context): String {
+    /** [includePins] only for the board's own PIN pad — never over HTTP. */
+    fun statusJson(ctx: Context, includePins: Boolean = false): String {
         var chores = Data.readArray(ctx, FILE)
         // One-time chores quietly retire a few days after their date.
         val cutoff = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -3) }
@@ -82,7 +83,8 @@ object Chores {
             .put("doneToday", doneToday)
             .put("stars", stars)
             .put("goals", goals)
-            .put("members", JSONArray(Members.json(ctx)))
+            .put("members", JSONArray(
+                if (includePins) Members.json(ctx) else Members.publicJson(ctx)))
             .put("suggestions", suggestions(ctx, chores))
             .toString()
     }

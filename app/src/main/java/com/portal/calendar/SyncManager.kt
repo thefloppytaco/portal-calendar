@@ -69,7 +69,10 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
                 val text = conn.inputStream.bufferedReader().readText()
                 if (!text.contains("BEGIN:VCALENDAR"))
                     throw RuntimeException("not an iCal feed")
-                cache.writeText(text)
+                // Atomic: a crash mid-write must not corrupt the offline copy.
+                val tmp = File(cache.path + ".tmp")
+                tmp.writeText(text)
+                tmp.renameTo(cache)
                 return text
             } finally {
                 conn.disconnect()
@@ -110,8 +113,11 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
                 val magic = MagicWords.match(e.summary?.value ?: "")
                 if (magic != null) {
                     val uid = e.uid?.value ?: (feed.url + (e.summary?.value ?: ""))
-                    if (MagicWords.markProcessed(ctx, uid)) {
+                    // Mark AFTER a successful execute so a failed command
+                    // retries next sync instead of being consumed silently.
+                    if (!MagicWords.isProcessed(ctx, uid)) {
                         runCatching { MagicWords.execute(ctx, magic, ds.value.time) }
+                            .onSuccess { MagicWords.markProcessed(ctx, uid) }
                     }
                     continue
                 }
@@ -136,8 +142,12 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
                         out.add(EventInstance(s, s + durMs, allDay, title, loc, feed.name, feed.color))
                 } else {
                     val skips = e.uid?.value?.let { overridden[it] }
-                    // Honors RRULE + RDATE + EXDATE.
-                    val it2 = e.getDateIterator(tz)
+                    // Honors RRULE + RDATE + EXDATE. Expand in the EVENT's own
+                    // timezone — using the device zone shifts a foreign-TZID
+                    // feed's occurrences (sometimes a whole day) and breaks
+                    // EXDATE/RECURRENCE-ID matching across DST mismatches.
+                    val etz = ical.timezoneInfo.getTimezone(ds)?.timeZone ?: tz
+                    val it2 = e.getDateIterator(etz)
                     it2.advanceTo(Date(windowStart - max(durMs, DAY_MS)))
                     var guard = 0
                     while (it2.hasNext() && guard < 2000) {
@@ -195,11 +205,12 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
                 val title = e.summary?.value?.trim().orEmpty()
                 if (title.isEmpty()) continue
                 val uid = e.uid?.value ?: title
-                if (!MagicWords.markProcessed(ctx, uid)) continue
+                if (MagicWords.isProcessed(ctx, uid)) continue
+                // Mark only after success — a failed command retries next sync.
                 runCatching {
                     MagicWords.execute(ctx, MagicWords.parseSmart(ctx, title),
                         e.dateStart?.value?.time ?: System.currentTimeMillis())
-                }
+                }.onSuccess { MagicWords.markProcessed(ctx, uid) }
             }
         }
     }
@@ -208,7 +219,15 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
         val start = e.dateStart?.value?.time ?: return 0
         e.dateEnd?.value?.time?.let { return max(0, it - start) }
         e.duration?.value?.let { return it.toMillis() }
-        return if (allDay) DAY_MS else 0
+        if (allDay) {
+            // One CALENDAR day, not a fixed 24h — a fixed span spills onto the
+            // next day across DST and double-renders the event.
+            val c = java.util.Calendar.getInstance()
+            c.timeInMillis = start
+            c.add(java.util.Calendar.DAY_OF_MONTH, 1)
+            return c.timeInMillis - start
+        }
+        return 0
     }
 
     private fun md5(s: String): String =

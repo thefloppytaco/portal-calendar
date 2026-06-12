@@ -1130,14 +1130,19 @@ async function wxClear(){
 let members = [];
 
 function renderMembers(){
+  // PINs never come over the wire — the server only says hasPin. The field
+  // stays empty unless you type a NEW pin; only then does the save include it.
   document.getElementById('membersBox').innerHTML = members.map((m,i) => `
     <div class="cal-row">
       <input type="color" value="${esc(m.color)}" onchange="members[${i}].color=this.value">
       <input type="text" value="${esc(m.name)}" autocomplete="off" style="margin:0;flex:1;"
              oninput="members[${i}].name=this.value">
-      <input type="text" value="${esc(m.pin || '')}" placeholder="PIN" maxlength="4" inputmode="numeric"
-             autocomplete="off" style="margin:0;width:74px;" title="Optional: only this person (or a parent) can check off their chores"
+      <input type="text" value="${esc(typeof m.pin === 'string' ? m.pin : '')}"
+             placeholder="${m.hasPin && typeof m.pin !== 'string' ? '••••' : 'PIN'}" maxlength="4" inputmode="numeric"
+             autocomplete="off" style="margin:0;width:74px;" title="Optional: only this person (or a parent) can check off their chores. Leave as •••• to keep the current PIN."
              oninput="members[${i}].pin=this.value">
+      ${m.hasPin ? `<button class="del" title="Remove PIN" style="font-size:11px;"
+             onclick="members[${i}].pin='';members[${i}].hasPin=false;renderMembers()">PIN✕</button>` : ''}
       <button class="del" onclick="members.splice(${i},1);renderMembers()">✕</button>
     </div>`).join('') || '<div class="empty">No members yet</div>';
 }
