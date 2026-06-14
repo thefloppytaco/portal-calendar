@@ -661,7 +661,7 @@ class BoardController(private val baseCtx: Context) {
             setTextColor(INK)
             setHintTextColor(FAINT)
             isSingleLine = true
-            background = roundedStroke(0xFFFBFAF6.toInt(), 12, dp(1), 0xFFDDD8CC.toInt())
+            background = roundedStroke(Palette.FIELD, 12, dp(1), Palette.FIELD_STROKE)
             setPadding(dp(14), dp(11), dp(14), dp(11))
         }
         card.addView(choreTitleInput, LinearLayout.LayoutParams(dp(520), WRAP).apply { bottomMargin = dp(12) })
@@ -1717,7 +1717,7 @@ class BoardController(private val baseCtx: Context) {
             setTextColor(INK)
             setHintTextColor(FAINT)
             isSingleLine = true
-            background = roundedStroke(0xFFFBFAF6.toInt(), 12, dp(1), 0xFFDDD8CC.toInt())
+            background = roundedStroke(Palette.FIELD, 12, dp(1), Palette.FIELD_STROKE)
             setPadding(dp(14), dp(12), dp(14), dp(12))
         }
         card.addView(addTitleInput, LinearLayout.LayoutParams(dp(480), WRAP).apply { bottomMargin = dp(14) })

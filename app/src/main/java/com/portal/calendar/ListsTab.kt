@@ -270,9 +270,9 @@ class ListsTab(
     }
 
     private fun box() = GradientDrawable().apply {
-        setColor(0xFFFBFAF6.toInt())
+        setColor(Palette.FIELD)
         cornerRadius = dp(12).toFloat()
-        setStroke(dp(1), 0xFFDDD8CC.toInt())
+        setStroke(dp(1), Palette.FIELD_STROKE)
     }
 
     private fun lp(top: Int = 0, bottom: Int = 0) =
