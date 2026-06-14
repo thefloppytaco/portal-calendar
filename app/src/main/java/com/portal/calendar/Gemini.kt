@@ -199,6 +199,46 @@ object Gemini {
     }
 
     /**
+     * Spoken command (WAV audio) → transcript + a friendly reply + the same
+     * {events, listItems, chores} proposal shape [applyProposals] executes.
+     * One Gemini call transcribes AND interprets — "private Alexa" on the
+     * family's own key. Empty arrays + a reply when it's just a question.
+     */
+    fun voiceCommand(ctx: Context, wavB64: String): JSONObject {
+        val members = Members.all(ctx).joinToString(", ") { it.name }
+        val lists = JSONArray(FamilyLists.json(ctx)).let { arr ->
+            (0 until arr.length()).joinToString(", ") { arr.getJSONObject(it).optString("name") }
+        }
+        val now = SimpleDateFormat("yyyy-MM-dd (EEEE) HH:mm", Locale.US).format(Date())
+        val prompt = """
+            You are the voice assistant for a family calendar board. Now is $now.
+            Family members: ${members.ifEmpty { "(none yet)" }}.
+            Existing lists: ${lists.ifEmpty { "(none yet)" }}.
+            The attached audio is one spoken command. Transcribe it, then extract
+            any actions. Respond with STRICT JSON only, exactly this shape:
+            {"transcript":string,
+             "reply":string (ONE short friendly sentence confirming what you did,
+                             or answering if it was just a question),
+             "events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM" or null,
+               "durationMins":number,"allDay":boolean}],
+             "listItems":[{"list":string,"text":string}],
+             "chores":[{"title":string,"member":string or "","date":"YYYY-MM-DD"}]}
+            Resolve relative dates/times ("tomorrow at 3", "Friday") against now.
+            Buying/getting food or supplies → a listItem on "Groceries". Telling a
+            member to do something → a chore. A scheduled thing → an event. If the
+            audio is empty or unintelligible, set transcript to "" and arrays empty.
+        """.trimIndent()
+        val raw = generate(ctx, prompt, wavB64, "audio/wav")
+        val o = JSONObject(raw)
+        return JSONObject()
+            .put("transcript", o.optString("transcript"))
+            .put("reply", o.optString("reply"))
+            .put("events", o.optJSONArray("events") ?: JSONArray())
+            .put("listItems", o.optJSONArray("listItems") ?: JSONArray())
+            .put("chores", o.optJSONArray("chores") ?: JSONArray())
+    }
+
+    /**
      * One inbox-calendar command → a routed directive. Smarter than the
      * rule-based parser: free phrasing, picks the best existing list, and
      * cleans up spelling in the item text. Callers fall back to

@@ -128,6 +128,16 @@ class BoardController(private val baseCtx: Context) {
     private var addBusy = false
     private lateinit var exitButton: TextView
 
+    // Voice (tap-to-talk natural-language commands via the user's Gemini key).
+    private lateinit var micFab: TextView
+    private lateinit var voiceOverlay: FrameLayout
+    private lateinit var voiceState: TextView
+    private lateinit var voiceSub: TextView
+    private lateinit var voiceBtn: TextView
+    private val voice = VoiceInput()
+    private val voiceExec = java.util.concurrent.Executors.newSingleThreadExecutor()
+    @Volatile private var voiceBusy = false
+
     private class MonthCell(val wrap: LinearLayout, val num: TextView,
                             val box: LinearLayout, val more: TextView)
 
@@ -222,6 +232,8 @@ class BoardController(private val baseCtx: Context) {
         (tabButtons[0].parent as View).visibility =
             if (flags.drop(1).any { it }) View.VISIBLE else View.GONE
         if (!flags[currentTab]) setTab(0)
+        if (::micFab.isInitialized)
+            micFab.visibility = if (Gemini.isReady(ctx)) View.VISIBLE else View.GONE
     }
 
     fun start() {
@@ -241,6 +253,7 @@ class BoardController(private val baseCtx: Context) {
         App.instance.removeConfigListener(configListener)
         App.instance.removeDataListener(dataListener)
         if (App.instance.activeBoard === this) App.instance.activeBoard = null
+        runCatching { voice.stop(); voiceExec.shutdownNow() }
     }
 
     /** Returns true if an overlay was open and got closed (for Back handling). */
@@ -273,7 +286,82 @@ class BoardController(private val baseCtx: Context) {
         if (settingsOverlay.visibility == View.VISIBLE) {
             settingsOverlay.visibility = View.GONE; closed = true
         }
+        if (voiceOverlay.visibility == View.VISIBLE) {
+            voice.stop(); voiceOverlay.visibility = View.GONE; voiceBusy = false; closed = true
+        }
         return closed
+    }
+
+    // ----------------------------------------------------------- voice input
+
+    private fun startVoice() {
+        if (!Gemini.isReady(ctx)) {
+            showVoice("Voice needs AI", "Turn on AI and add a Gemini key in Settings first.", "Close")
+            return
+        }
+        if (voiceBusy) return
+        val act = baseCtx as? android.app.Activity
+        if (act != null && act.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            runCatching { act.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 71) }
+            showVoice("Allow the mic", "Tap Allow, then tap the 🎤 again.", "Close")
+            return
+        }
+        voiceBusy = true
+        showVoice("Listening…", "Say it, then pause — e.g. \"add dentist Tuesday at 3\".", "Stop")
+        voiceExec.execute {
+            val wav = runCatching { voice.record() }.getOrNull()
+            if (wav == null) { handler.post { finishVoice("Didn't catch that", "Tap 🎤 to try again.") }; return@execute }
+            handler.post { voiceState.text = "Thinking…"; voiceSub.text = ""; voiceBtn.visibility = View.GONE }
+            try {
+                val b64 = android.util.Base64.encodeToString(wav, android.util.Base64.NO_WRAP)
+                val res = Gemini.voiceCommand(ctx, b64)
+                val transcript = res.optString("transcript").trim()
+                if (transcript.isEmpty()) {
+                    handler.post { finishVoice("Didn't catch that", "Tap 🎤 to try again.") }
+                    return@execute
+                }
+                val applied = org.json.JSONObject(Gemini.applyProposals(ctx, res)).optInt("applied")
+                val reply = res.optString("reply").ifEmpty {
+                    if (applied > 0) "Done — added $applied." else "Okay."
+                }
+                handler.post {
+                    App.instance.notifyDataChanged()
+                    doSync() // surface a new event/item on the board right away
+                    finishVoice("“$transcript”", reply)
+                }
+            } catch (e: Exception) {
+                handler.post { finishVoice("Sorry — that didn't work", e.message ?: "Try again.") }
+            }
+        }
+    }
+
+    /** The overlay's button: Stop ends recording early; otherwise it dismisses. */
+    private fun onVoiceButton() {
+        if (voice.running) voice.stop() else hideVoice()
+    }
+
+    private fun showVoice(state: String, sub: String, btn: String) {
+        voiceState.text = state
+        voiceSub.text = sub
+        voiceBtn.text = btn
+        voiceBtn.visibility = View.VISIBLE
+        voiceOverlay.visibility = View.VISIBLE
+    }
+
+    private fun finishVoice(state: String, sub: String) {
+        voiceBusy = false
+        voiceState.text = state
+        voiceSub.text = sub
+        voiceBtn.text = "Done"
+        voiceBtn.visibility = View.VISIBLE
+        // Auto-dismiss the confirmation after a few seconds.
+        handler.postDelayed({ if (!voiceBusy) hideVoice() }, 6000)
+    }
+
+    private fun hideVoice() {
+        voiceOverlay.visibility = View.GONE
+        voiceBusy = false
     }
 
     // ---------------------------------------------------------------- sync
@@ -347,7 +435,59 @@ class BoardController(private val baseCtx: Context) {
         root.addView(confirmOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         pinOverlay = buildPinOverlay()
         root.addView(pinOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        // Tap-to-talk mic — floats bottom-end, shown only when AI is ready.
+        micFab = TextView(ctx).apply {
+            text = "🎤"
+            textSize = 26f
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ACCENT) }
+            elevation = dp(6).toFloat()
+            visibility = if (Gemini.isReady(ctx)) View.VISIBLE else View.GONE
+            setOnClickListener { requirePin { startVoice() } }
+        }
+        root.addView(micFab, FrameLayout.LayoutParams(dp(60), dp(60)).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            rightMargin = dp(22); bottomMargin = dp(22)
+        })
+        voiceOverlay = buildVoiceOverlay()
+        root.addView(voiceOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         return root
+    }
+
+    private fun buildVoiceOverlay(): FrameLayout {
+        val scrim = FrameLayout(ctx).apply {
+            setBackgroundColor(SCRIM)
+            visibility = View.GONE
+            setOnClickListener { } // swallow taps behind the card
+        }
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = rounded(CARD, Palette.R_CARD)
+            setPadding(dp(36), dp(32), dp(36), dp(28))
+        }
+        card.addView(TextView(ctx).apply {
+            text = "🎤"; textSize = 40f; gravity = Gravity.CENTER
+        })
+        voiceState = TextView(ctx).apply {
+            textSize = 22f; setTextColor(INK); gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        card.addView(voiceState, lpMatchWrap(top = dp(12)))
+        voiceSub = TextView(ctx).apply {
+            textSize = 15f; setTextColor(MUTED); gravity = Gravity.CENTER
+            maxLines = 4; ellipsize = TextUtils.TruncateAt.END
+        }
+        card.addView(voiceSub, lpMatchWrap(top = dp(8)))
+        voiceBtn = accentButton("Stop") { onVoiceButton() }
+        card.addView(voiceBtn, LinearLayout.LayoutParams(WRAP, WRAP).apply {
+            topMargin = dp(20); gravity = Gravity.CENTER_HORIZONTAL
+        })
+        scrim.addView(card, FrameLayout.LayoutParams(dp(420), WRAP).apply {
+            gravity = Gravity.CENTER
+        })
+        return scrim
     }
 
     // ------------------------------------------------------ chore composer
