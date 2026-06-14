@@ -1894,8 +1894,26 @@ class BoardController(private val baseCtx: Context) {
 
         dayBox.removeAllViews()
         val evs = eventsInRange(dayStart, dayEnd)
-        if (evs.isEmpty()) {
+        val allDay = evs.filter { it.allDay }
+        val timed = evs.filterNot { it.allDay }.sortedBy { it.start }
+
+        // All-day events ride a pinned strip above the timeline.
+        for (ev in allDay) {
             dayBox.addView(TextView(ctx).apply {
+                text = "  " + ev.title
+                textSize = 15f
+                setTextColor(INK)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                background = rounded(mix(ev.color, CARD, 0.80f), Palette.R_ELEMENT)
+                setPadding(dp(12), dp(9), dp(12), dp(9))
+                setOnClickListener { showDetails(ev) }
+            }, lpMatchWrap(bottom = dp(6)))
+        }
+
+        if (timed.isEmpty()) {
+            if (allDay.isEmpty()) dayBox.addView(TextView(ctx).apply {
                 text = "Nothing scheduled ✨"
                 textSize = 22f
                 setTextColor(MUTED)
@@ -1904,56 +1922,113 @@ class BoardController(private val baseCtx: Context) {
             }, lpMatchWrap())
             return
         }
-        for (ev in evs) {
-            val row = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setOnClickListener { showDetails(ev) }
+
+        // Window: a generous span that covers the day's events without a
+        // pile of empty hours up top/bottom on a wall display.
+        fun hourOf(ms: Long) = ((ms.coerceIn(dayStart, dayEnd) - dayStart) / 3_600_000L).toInt()
+        var startHour = 24; var endHour = 0
+        for (ev in timed) {
+            startHour = minOf(startHour, hourOf(ev.start))
+            endHour = maxOf(endHour, hourOf(ev.end - 1) + 1)
+        }
+        startHour = startHour.coerceAtMost(8).coerceAtLeast(0)
+        endHour = endHour.coerceAtLeast(20).coerceAtMost(24)
+        if (endHour - startHour < 8) endHour = (startHour + 8).coerceAtMost(24)
+
+        val pxPerHour = dp(64)
+        val pxPerMin = pxPerHour / 60f
+        val winStartMin = startHour * 60
+        val timeline = DayTimeline(ctx).apply {
+            gutter = dp(50)
+            totalHeight = (endHour - startHour) * pxPerHour
+        }
+
+        // Hour grid + labels.
+        for (h in startHour..endHour) {
+            val y = (h - startHour) * pxPerHour
+            timeline.addView(View(ctx).apply { setBackgroundColor(LINE) },
+                DayTimeline.LP(y, maxOf(1, dp(1)), DayTimeline.FULL))
+            if (h < endHour) {
+                val cal = (dayCal.clone() as Calendar).apply { set(Calendar.HOUR_OF_DAY, h) }
+                timeline.addView(TextView(ctx).apply {
+                    text = hourLabel(cal.time)
+                    textSize = 11f
+                    setTextColor(FAINT)
+                    setPadding(0, dp(2), dp(8), 0)
+                    gravity = Gravity.END
+                }, DayTimeline.LP(y - dp(7), -1, DayTimeline.LABEL))
             }
-            row.addView(TextView(ctx).apply {
-                text = if (ev.allDay) "All day"
-                       else if (ev.start < dayStart) "…" + timeFormat().format(ev.end)
-                       else timeFormat().format(ev.start)
-                textSize = 19f
-                setTextColor(MUTED)
-                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            }, LinearLayout.LayoutParams(dp(130), WRAP))
+        }
+
+        // Overlap-packed event blocks.
+        val intervals = timed.map {
+            it.start.coerceAtLeast(dayStart) to it.end.coerceAtMost(dayEnd)
+        }
+        val gap = dp(3)
+        for (p in timeline.pack(intervals)) {
+            val ev = timed[p.index]
+            val sMin = ((intervals[p.index].first - dayStart) / 60_000L).toInt() - winStartMin
+            val eMin = ((intervals[p.index].second - dayStart) / 60_000L).toInt() - winStartMin
+            val top = (sMin * pxPerMin).toInt().coerceAtLeast(0)
+            val h = ((eMin - sMin) * pxPerMin).toInt().coerceAtLeast(dp(26))
             val card = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                background = rounded(mix(ev.color, CARD, 0.88f), Palette.R_ELEMENT)
+                background = rounded(mix(ev.color, CARD, 0.78f), Palette.R_ELEMENT)
                 elevation = dp(1).toFloat()
-                setPadding(dp(16), dp(14), dp(16), dp(14))
+                setPadding(dp(2), dp(4), dp(8), dp(4))
+                setOnClickListener { showDetails(ev) }
             }
-            card.addView(View(ctx).apply { background = rounded(ev.color, 3) },
-                LinearLayout.LayoutParams(dp(5), dp(38)).apply { rightMargin = dp(14) })
+            card.addView(View(ctx).apply { background = rounded(ev.color, 2) },
+                LinearLayout.LayoutParams(dp(4), MATCH).apply { rightMargin = dp(7) })
             val textCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
             textCol.addView(TextView(ctx).apply {
                 text = ev.title
-                textSize = 18f
+                textSize = 14f
                 setTextColor(INK)
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                maxLines = 1
+                maxLines = if (h > dp(46)) 2 else 1
                 ellipsize = TextUtils.TruncateAt.END
             })
-            textCol.addView(TextView(ctx).apply {
-                text = buildString {
-                    if (!ev.allDay) {
-                        append(timeFormat().format(ev.start))
-                        if (ev.end > ev.start) append(" – ").append(timeFormat().format(ev.end))
-                    } else append("All day")
-                    ev.location?.let { append("   📍 ").append(it) }
-                }
-                textSize = 13f
+            // Only enough room to show the time on taller blocks.
+            if (h > dp(40)) textCol.addView(TextView(ctx).apply {
+                text = if (ev.start < dayStart) "ends " + timeFormat().format(ev.end)
+                       else timeFormat().format(ev.start)
+                textSize = 11f
                 setTextColor(MUTED)
                 maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
             })
-            card.addView(textCol, LinearLayout.LayoutParams(0, WRAP, 1f))
-            row.addView(card, LinearLayout.LayoutParams(0, WRAP, 1f))
-            dayBox.addView(row, lpMatchWrap(bottom = dp(10)))
+            card.addView(textCol, LinearLayout.LayoutParams(0, MATCH, 1f))
+            timeline.addView(card, DayTimeline.LP(
+                top, h - gap, DayTimeline.EVENT,
+                colFrac = p.col.toFloat() / p.cols,
+                wFrac = 1f / p.cols))
         }
+
+        // "Now" indicator on today.
+        var nowY = -1
+        if (dayOffset == 0) {
+            val nowMin = ((System.currentTimeMillis() - dayStart) / 60_000L).toInt() - winStartMin
+            if (nowMin in 0..((endHour - startHour) * 60)) {
+                nowY = (nowMin * pxPerMin).toInt()
+                timeline.addView(View(ctx).apply { setBackgroundColor(ACCENT) },
+                    DayTimeline.LP(nowY, maxOf(2, dp(2)), DayTimeline.FULL))
+            }
+        }
+
+        dayBox.addView(timeline, lpMatchWrap())
+
+        // Auto-scroll to "now" (today) or the first event, once laid out.
+        val firstTop = ((((intervals.firstOrNull()?.first ?: dayStart) - dayStart) / 60_000L)
+            .toInt() - winStartMin) * pxPerMin
+        val target = (if (nowY >= 0) nowY else firstTop.toInt()) - dp(70)
+        dayContainer.post { dayContainer.scrollTo(0, target.coerceAtLeast(0)) }
     }
+
+    /** "7 AM" style hour label, locale-aware (24h shows "07"). */
+    private fun hourLabel(time: java.util.Date): String =
+        (if (android.text.format.DateFormat.is24HourFormat(ctx))
+            SimpleDateFormat("HH", Locale.getDefault())
+        else SimpleDateFormat("h a", Locale.getDefault())).format(time)
 
     private fun renderSchedule() {
         val start = Calendar.getInstance()
