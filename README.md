@@ -28,10 +28,12 @@ secondhand Portal, running entirely on your LAN.
 - **Reads any iCal feed**: Google Calendar secret addresses, iCloud public links,
   any `.ics`/`webcal://` URL. Recurring events, edited instances and cancellations
   handled properly. One color per person.
-- **Two-way event creation** — add events from the board (`+ Add`) or the setup page;
-  they're written into the *real* calendar (iCloud via CalDAV with an app-specific
-  password, Google via its API with your own OAuth client), so they appear on
-  everyone's phones natively.
+- **Two-way event create *and delete*** — add events from the board (`+ Add`) or the
+  setup page, and **remove an event by tapping it → 🗑 Remove**. Both write to the
+  *real* calendar (iCloud via CalDAV with an app-specific password, Google via its API
+  with your own OAuth client), so changes sync to everyone's phones natively. (Remove
+  shows only for events on a connected account; a deleted event stays hidden on the
+  board even while a slow secret-iCal feed catches up.)
 - **Weather** — free Open-Meteo forecasts: current conditions in the sidebar, daily
   highs in the week header, an hour-accurate forecast on each event.
 

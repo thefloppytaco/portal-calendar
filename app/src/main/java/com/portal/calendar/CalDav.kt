@@ -85,9 +85,9 @@ object CalDav {
         return cals
     }
 
-    /** Creates a VEVENT in the given calendar collection. */
+    /** Creates a VEVENT in the given calendar collection; returns its UID. */
     fun addEventTo(ctx: Context, target: String, title: String,
-                   startMillis: Long, endMillis: Long, allDay: Boolean) {
+                   startMillis: Long, endMillis: Long, allDay: Boolean): String {
         val email = email(ctx) ?: throw IllegalArgumentException("iCloud isn't connected yet")
         val password = prefs(ctx).getString("icloud_password", null)
             ?: throw IllegalArgumentException("iCloud isn't connected yet")
@@ -122,7 +122,62 @@ object CalDav {
             if (resp.code !in 200..299)
                 throw IllegalArgumentException("iCloud refused the event (HTTP ${resp.code})")
         }
+        return uid
     }
+
+    /**
+     * Deletes the VEVENT with this UID from whichever connected calendar holds
+     * it (located via a CalDAV calendar-query REPORT). Returns true if removed.
+     */
+    fun deleteByUid(ctx: Context, uid: String): Boolean {
+        if (uid.isBlank()) return false
+        val email = email(ctx) ?: return false
+        val pw = prefs(ctx).getString("icloud_password", null) ?: return false
+        for (cal in calendars(ctx)) {
+            // Fast path: events we (and Apple's own clients) create live at
+            // {collection}/{uid}.ics. Try a direct DELETE first; a 404 just
+            // means "not at the convention URL" → fall through to the lookup.
+            val direct = cal.href.trimEnd('/') + "/" + uid + ".ics"
+            if (tryDelete(direct, email, pw, treat404AsGone = false)) return true
+            // General path: locate the resource by UID (other clients name it
+            // differently), then DELETE it.
+            val href = queryHrefByUid(cal.href, email, pw, uid) ?: continue
+            if (tryDelete(resolve(cal.href, href), email, pw, treat404AsGone = true)) return true
+        }
+        return false
+    }
+
+    private fun tryDelete(url: String, email: String, pw: String, treat404AsGone: Boolean): Boolean = try {
+        val req = Request.Builder().url(url)
+            .header("Authorization", Credentials.basic(email, pw)).delete().build()
+        client.newCall(req).execute().use {
+            it.code in 200..299 || it.code == 410 || (treat404AsGone && it.code == 404)
+        }
+    } catch (e: Exception) { false }
+
+    /** First resource href matching UID in a calendar collection, or null. */
+    private fun queryHrefByUid(calUrl: String, email: String, pw: String, uid: String): String? {
+        val body = """<?xml version="1.0" encoding="utf-8"?>
+            <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+            <d:prop><d:getetag/></d:prop>
+            <c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT">
+            <c:prop-filter name="UID"><c:text-match collation="i;octet">${xmlEscape(uid)}</c:text-match></c:prop-filter>
+            </c:comp-filter></c:comp-filter></c:filter></c:calendar-query>""".trimIndent()
+        val req = Request.Builder().url(calUrl)
+            .header("Authorization", Credentials.basic(email, pw))
+            .header("Depth", "1")
+            .method("REPORT", body.toRequestBody(XML))
+            .build()
+        val xml = client.newCall(req).execute().use { r ->
+            if (r.code !in 200..299 && r.code != 207) return null
+            r.body?.string() ?: return null
+        }
+        return Regex("<(?:\\w+:)?href[^>]*>([^<]+\\.ics)</", RegexOption.IGNORE_CASE)
+            .find(xml)?.groupValues?.get(1)?.trim()
+    }
+
+    private fun xmlEscape(s: String): String =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     // ------------------------------------------------------------ plumbing
 

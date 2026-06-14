@@ -50,6 +50,20 @@ object Writers {
         }
     }
 
+    /**
+     * Deletes an event everywhere it can be reached by UID — tries each
+     * connected backend, returns true if any removed it. False means it
+     * wasn't on a connected (writable) account, so the deletion can't sync.
+     */
+    fun deleteEvent(ctx: Context, uid: String): Boolean {
+        if (uid.isBlank()) return false
+        if (GoogleCal.isConnected(ctx) &&
+            runCatching { GoogleCal.deleteByUid(ctx, uid) }.getOrDefault(false)) return true
+        if (CalDav.isConnected(ctx) &&
+            runCatching { CalDav.deleteByUid(ctx, uid) }.getOrDefault(false)) return true
+        return false
+    }
+
     fun statusJson(ctx: Context): String {
         val cals = JSONArray()
         calendars(ctx).forEach {

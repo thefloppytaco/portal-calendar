@@ -107,6 +107,8 @@ class BoardController(private val baseCtx: Context) {
     private lateinit var detailOverlay: FrameLayout
     private lateinit var detailTitle: TextView
     private lateinit var detailBody: TextView
+    private lateinit var detailDeleteBtn: TextView
+    private var detailEvent: EventInstance? = null
     private lateinit var dayOverlay: FrameLayout
     private lateinit var dayTitle: TextView
     private lateinit var dayListBox: LinearLayout
@@ -1894,10 +1896,47 @@ class BoardController(private val baseCtx: Context) {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
         }
+        detailDeleteBtn = navButton("🗑 Remove") { requirePin { deleteCurrentEvent() } }.apply {
+            setTextColor(0xFFE0556A.toInt())
+        }
+        btnRow.addView(detailDeleteBtn)
+        btnRow.addView(spacer(dp(8)))
         btnRow.addView(navButton("Close") { detailOverlay.visibility = View.GONE })
         card.addView(btnRow, lpMatchWrap(top = dp(14)))
         scrim.addView(card, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         return scrim
+    }
+
+    /** Deletes the event being viewed from its calendar (syncs back). */
+    private fun deleteCurrentEvent() {
+        val ev = detailEvent ?: return
+        val msg = if (ev.recurring)
+            "This event repeats — removing it deletes every occurrence from the calendar it lives on."
+        else "This also deletes it from the calendar it lives on (it syncs back to everyone)."
+        confirm("Remove “${ev.title}”?", msg, "Remove") {
+            detailOverlay.visibility = View.GONE
+            statusLine = "Removing “${ev.title}”…"; statusText.text = statusLine
+            Thread {
+                val ok = runCatching { Writers.deleteEvent(ctx, ev.uid) }.getOrDefault(false)
+                handler.post {
+                    if (ok) {
+                        DeletedEvents.suppress(ctx, ev.uid)
+                        events = events.filterNot { it.uid == ev.uid && it.uid.isNotEmpty() }
+                        App.instance.lastEvents = events
+                        renderAll()
+                        doSync()
+                    } else {
+                        detailEvent = null
+                        detailTitle.text = "Couldn't remove that"
+                        detailBody.text = "“${ev.title}” isn't on a calendar connected here for " +
+                            "two-way sync, so the Portal can't delete it. Connect that account under " +
+                            "Settings → Two-way sync, then try again."
+                        detailDeleteBtn.visibility = View.GONE
+                        detailOverlay.visibility = View.VISIBLE
+                    }
+                }
+            }.start()
+        }
     }
 
     private fun showSettingsOverlay() {
@@ -1908,6 +1947,12 @@ class BoardController(private val baseCtx: Context) {
     }
 
     private fun showDetails(ev: EventInstance) {
+        detailEvent = ev
+        // Removable only when it carries a UID and an account that holds it is
+        // connected for two-way sync — otherwise the delete couldn't propagate.
+        val canDelete = ev.uid.isNotEmpty() &&
+            (GoogleCal.isConnected(ctx) || CalDav.isConnected(ctx))
+        detailDeleteBtn.visibility = if (canDelete) View.VISIBLE else View.GONE
         val dayFmt = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
         detailTitle.text = ev.title
         detailBody.text = buildString {

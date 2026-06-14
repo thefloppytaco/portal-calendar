@@ -34,6 +34,24 @@ object Data {
         return result
     }
 
+    // ---- JSONObject-keyed files (e.g. uid → timestamp maps) ----
+    @Synchronized
+    fun readObject(ctx: Context, name: String): org.json.JSONObject {
+        val f = File(ctx.filesDir, name)
+        if (!f.exists()) return org.json.JSONObject()
+        return try { org.json.JSONObject(f.readText()) } catch (e: Exception) {
+            runCatching { f.renameTo(File(ctx.filesDir, "$name.corrupt")) }
+            org.json.JSONObject()
+        }
+    }
+
+    @Synchronized
+    fun mutateObject(ctx: Context, name: String, transform: (org.json.JSONObject) -> Unit) {
+        val o = readObject(ctx, name)
+        transform(o)
+        writeRaw(ctx, name, o.toString())
+    }
+
     /** Atomic raw-text write (used by config import to restore files verbatim). */
     @Synchronized
     fun writeRaw(ctx: Context, name: String, text: String) {

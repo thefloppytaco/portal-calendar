@@ -114,6 +114,38 @@ object GoogleCal {
         return cals
     }
 
+    /**
+     * Deletes the event with this iCal UID from whichever writable calendar
+     * holds it (matched via events.list?iCalUID). Returns true if removed.
+     * For a repeating event this targets the series master → all occurrences.
+     */
+    fun deleteByUid(ctx: Context, uid: String): Boolean {
+        if (!isConnected(ctx) || uid.isBlank()) return false
+        val token = accessToken(ctx)
+        fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
+        for ((calId, _) in calendars(ctx)) {
+            val listReq = Request.Builder()
+                .url("$API/calendars/${enc(calId)}/events?iCalUID=${enc(uid)}&showDeleted=false&maxResults=10")
+                .header("Authorization", "Bearer $token").get().build()
+            val items = client.newCall(listReq).execute().use { r ->
+                if (r.code !in 200..299) return@use null
+                JSONObject(r.body?.string() ?: "{}").optJSONArray("items")
+            } ?: continue
+            for (i in 0 until items.length()) {
+                val id = items.getJSONObject(i).optString("id")
+                if (id.isEmpty()) continue
+                val delReq = Request.Builder()
+                    .url("$API/calendars/${enc(calId)}/events/${enc(id)}")
+                    .header("Authorization", "Bearer $token").delete().build()
+                val ok = client.newCall(delReq).execute().use {
+                    it.code in 200..299 || it.code == 404 || it.code == 410 // already gone = success
+                }
+                if (ok) return true
+            }
+        }
+        return false
+    }
+
     fun addEvent(ctx: Context, calendarId: String, title: String,
                  startMillis: Long, endMillis: Long, allDay: Boolean) {
         val utc = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
