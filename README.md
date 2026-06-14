@@ -17,6 +17,10 @@ secondhand Portal, running entirely on your LAN.
 |---|---|
 | ![Week view](docs/week-view.png) | ![Month view](docs/month-view.png) |
 
+| Day timeline | Portrait (day-per-row) | Dark mode |
+|---|---|---|
+| ![Day timeline](docs/day-view.png) | ![Portrait](docs/portrait-view.png) | ![Dark](docs/dark-view.png) |
+
 ## Everything it does
 
 ### 📅 Calendar
@@ -24,9 +28,11 @@ secondhand Portal, running entirely on your LAN.
   overlapping events sit side-by-side in columns so you can see the clashes), Week,
   Month, and Plan (a two-week agenda). Pick which one the board opens on.
 - **Your week, your way** — set the first day of the week (Sunday/Monday/Saturday or
-  locale) and run the board in **landscape, portrait, or auto-rotate** — in auto it
-  follows the accelerometer and flips tall⇄wide when you physically turn the Portal,
-  reflowing the layout to match.
+  locale), the view it opens on, and a **theme** (light · dark · auto-by-clock ·
+  match-system). Run it in **landscape, portrait, or auto-rotate**: auto follows the
+  accelerometer and flips tall⇄wide when you physically turn the Portal — and portrait
+  isn't a squeeze, the week re-lays-out as a **day-per-row agenda** instead of seven
+  cramped columns.
 - **Reads any iCal feed**: Google Calendar secret addresses, iCloud public links,
   any `.ics`/`webcal://` URL. Recurring events, edited instances and cancellations
   handled properly. One color per person.
