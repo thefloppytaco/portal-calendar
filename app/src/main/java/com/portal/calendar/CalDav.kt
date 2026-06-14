@@ -137,7 +137,9 @@ object CalDav {
             // Fast path: events we (and Apple's own clients) create live at
             // {collection}/{uid}.ics. Try a direct DELETE first; a 404 just
             // means "not at the convention URL" → fall through to the lookup.
-            val direct = cal.href.trimEnd('/') + "/" + uid + ".ics"
+            // Encode the UID as a path segment — a feed UID can contain /, #, ?
+            // which would otherwise re-target the request at the wrong resource.
+            val direct = cal.href.trimEnd('/') + "/" + android.net.Uri.encode(uid) + ".ics"
             if (tryDelete(direct, email, pw, treat404AsGone = false)) return true
             // General path: locate the resource by UID (other clients name it
             // differently), then DELETE it.

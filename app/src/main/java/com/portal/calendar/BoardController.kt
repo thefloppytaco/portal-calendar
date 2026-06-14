@@ -89,6 +89,8 @@ class BoardController(private val baseCtx: Context) {
     private lateinit var dayNumViews: List<TextView>
     private lateinit var dayColumnWraps: List<LinearLayout>
     private lateinit var dayColumns: List<LinearLayout>
+    private var weekIsRows = false                  // portrait: days are rows, not columns
+    private lateinit var weekRowsBox: LinearLayout   // portrait week container (built per render)
     private lateinit var weekContainer: LinearLayout
     private lateinit var monthContainer: LinearLayout
     private lateinit var dayBox: LinearLayout
@@ -146,6 +148,7 @@ class BoardController(private val baseCtx: Context) {
     val view: FrameLayout
 
     init {
+        Palette.dark = store.isDark(baseCtx) // set BEFORE any view is built
         view = buildUi()
         setView(store.defaultView()) // open on the user's chosen view
     }
@@ -164,16 +167,26 @@ class BoardController(private val baseCtx: Context) {
     }
     private var builtWeekStart = store.weekStart()
     private var builtOrientation = store.orientation()
+    private var builtTheme = store.theme()
+    private var builtDark = Palette.dark
+
+    /** True when the board's built structure no longer matches the settings. */
+    private fun needsRebuild() =
+        store.uiScale() != uiScale ||
+        store.weekStart() != builtWeekStart ||
+        store.orientation() != builtOrientation ||
+        store.theme() != builtTheme ||
+        store.isDark(baseCtx) != builtDark
+
+    private fun rebuild() = onScaleCommitted?.invoke(false)
+        ?: (baseCtx as? android.app.Activity)?.recreate() ?: Unit
 
     private val configListener: () -> Unit = {
-        // Scale, week-start, and orientation all change the built structure
-        // (densities, the static month weekday header, the layout axis), so a
-        // change to any of them swaps the board in place rather than re-rendering.
-        if (store.uiScale() != uiScale ||
-            store.weekStart() != builtWeekStart ||
-            store.orientation() != builtOrientation) {
-            onScaleCommitted?.invoke(false)
-                ?: (baseCtx as? android.app.Activity)?.recreate()
+        // Scale, week-start, orientation, and theme all change the built
+        // structure (densities, the month header, the layout axis, every
+        // color), so a change to any swaps the board in place vs re-rendering.
+        if (needsRebuild()) {
+            rebuild()
         } else {
             // Commit at the unchanged value: no rebuild happens, so make sure
             // any live-preview transform is cleared.
@@ -250,7 +263,10 @@ class BoardController(private val baseCtx: Context) {
         handler.post(syncTick)
     }
 
+    @Volatile private var stopped = false
+
     fun stop() {
+        stopped = true // in-flight async callbacks (voice, sync, delete) become no-ops
         handler.removeCallbacksAndMessages(null)
         App.instance.removeConfigListener(configListener)
         App.instance.removeDataListener(dataListener)
@@ -313,30 +329,43 @@ class BoardController(private val baseCtx: Context) {
         showVoice("Listening…", "Say it, then pause — e.g. \"add dentist Tuesday at 3\".", "Stop")
         voiceExec.execute {
             val wav = runCatching { voice.record() }.getOrNull()
-            if (wav == null) { handler.post { finishVoice("Didn't catch that", "Tap 🎤 to try again.") }; return@execute }
-            handler.post { voiceState.text = "Thinking…"; voiceSub.text = ""; voiceBtn.visibility = View.GONE }
+            if (wav == null) { post { finishVoice("Didn't catch that", "Tap 🎤 to try again.") }; return@execute }
+            post { if (voiceBusy) { voiceState.text = "Thinking…"; voiceSub.text = ""; voiceBtn.visibility = View.GONE } }
             try {
                 val b64 = android.util.Base64.encodeToString(wav, android.util.Base64.NO_WRAP)
                 val res = Gemini.voiceCommand(ctx, b64)
                 val transcript = res.optString("transcript").trim()
                 if (transcript.isEmpty()) {
-                    handler.post { finishVoice("Didn't catch that", "Tap 🎤 to try again.") }
+                    post { finishVoice("Didn't catch that", "Tap 🎤 to try again.") }
                     return@execute
                 }
-                val applied = org.json.JSONObject(Gemini.applyProposals(ctx, res)).optInt("applied")
-                val reply = res.optString("reply").ifEmpty {
-                    if (applied > 0) "Done — added $applied." else "Okay."
+                val applyRes = org.json.JSONObject(Gemini.applyProposals(ctx, res))
+                val applied = applyRes.optInt("applied")
+                val failed = applyRes.optJSONArray("errors")?.length() ?: 0
+                // Don't parrot the model's optimistic reply if things actually
+                // failed (e.g. events need a connected calendar — common).
+                val reply = when {
+                    failed > 0 && applied > 0 ->
+                        "Added $applied, but $failed couldn't be saved — events need a connected calendar (Settings → Two-way sync)."
+                    failed > 0 ->
+                        "I heard you, but couldn't save that — events need a connected calendar (Settings → Two-way sync)."
+                    else -> res.optString("reply").ifEmpty {
+                        if (applied > 0) "Done — added $applied." else "Okay."
+                    }
                 }
-                handler.post {
+                post {
                     App.instance.notifyDataChanged()
                     doSync() // surface a new event/item on the board right away
                     finishVoice("“$transcript”", reply)
                 }
             } catch (e: Exception) {
-                handler.post { finishVoice("Sorry — that didn't work", e.message ?: "Try again.") }
+                post { finishVoice("Sorry — that didn't work", e.message ?: "Try again.") }
             }
         }
     }
+
+    /** Run on the UI thread only if this board is still alive (post-rebuild safe). */
+    private fun post(action: () -> Unit) { handler.post(Runnable { if (!stopped) action() }) }
 
     /** The overlay's button: Stop ends recording early; otherwise it dismisses. */
     private fun onVoiceButton() {
@@ -357,9 +386,12 @@ class BoardController(private val baseCtx: Context) {
         voiceSub.text = sub
         voiceBtn.text = "Done"
         voiceBtn.visibility = View.VISIBLE
-        // Auto-dismiss the confirmation after a few seconds.
-        handler.postDelayed({ if (!voiceBusy) hideVoice() }, 6000)
+        // Auto-dismiss after a few seconds — but only THIS confirmation; a token
+        // guards against a stale timer closing a newer voice session.
+        val token = ++voiceSession
+        handler.postDelayed({ if (!voiceBusy && voiceSession == token) hideVoice() }, 6000)
     }
+    private var voiceSession = 0
 
     private fun hideVoice() {
         voiceOverlay.visibility = View.GONE
@@ -378,6 +410,7 @@ class BoardController(private val baseCtx: Context) {
             return
         }
         sync.requestSync { evs, problems ->
+            if (stopped) return@requestSync // board rebuilt mid-sync — don't touch dead views
             events = evs
             App.instance.lastEvents = evs
             statusLine = if (problems.isEmpty())
@@ -907,7 +940,7 @@ class BoardController(private val baseCtx: Context) {
             try {
                 val res = org.json.JSONObject(
                     Gemini.planMeal(ctx, dish, date, mealSlot, mealGroceries))
-                handler.post {
+                post {
                     mealAiBusy = false
                     mealAiOverlay.visibility = View.GONE
                     statusLine = "Planned “${res.optString("title")}”" +
@@ -916,7 +949,7 @@ class BoardController(private val baseCtx: Context) {
                     renderAll()
                 }
             } catch (e: Exception) {
-                handler.post {
+                post {
                     mealAiBusy = false
                     mealAiMsg.text = e.message ?: "Couldn't plan the meal"
                 }
@@ -1295,7 +1328,23 @@ class BoardController(private val baseCtx: Context) {
         }
         styleToggles()
 
-        // Day headers + columns ------------------------------------------
+        weekIsRows = portrait
+        if (portrait) {
+            // Portrait: the week is seven day-ROWS, stacked and scrollable, built
+            // fresh each render. (See docs/PORTRAIT_DESIGN.md.) The column views
+            // below aren't created; empty them so renderWeekColumns is skipped.
+            dayNameViews = emptyList(); dayNumViews = emptyList(); dayWxViews = emptyList()
+            dayColumnWraps = emptyList(); dayColumns = emptyList()
+            weekRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+            weekContainer = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(ScrollView(ctx).apply {
+                    isVerticalScrollBarEnabled = false
+                    addView(weekRowsBox, FrameLayout.LayoutParams(MATCH, WRAP))
+                }, LinearLayout.LayoutParams(MATCH, 0, 1f))
+            }
+        } else {
+        // Day headers + columns (landscape) ------------------------------
         val headerRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         val columnsRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         val names = ArrayList<TextView>()
@@ -1360,6 +1409,7 @@ class BoardController(private val baseCtx: Context) {
         weekContainer = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         weekContainer.addView(headerRow, lpMatchWrap())
         weekContainer.addView(columnsRow, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        } // end else (landscape columns)
         weekPanel.addView(weekContainer, LinearLayout.LayoutParams(MATCH, 0, 1f))
         monthContainer = buildMonthContainer()
         monthContainer.visibility = View.GONE
@@ -1843,7 +1893,7 @@ class BoardController(private val baseCtx: Context) {
             try {
                 Writers.setTarget(ctx, cal.kind, cal.id)
                 Writers.addEvent(ctx, title, start, end, addAllDay)
-                handler.post {
+                post {
                     addBusy = false
                     addOverlay.visibility = View.GONE
                     statusLine = "Added “$title” — waiting for the feed to update"
@@ -1851,7 +1901,7 @@ class BoardController(private val baseCtx: Context) {
                     doSync()
                 }
             } catch (e: Exception) {
-                handler.post {
+                post {
                     addBusy = false
                     addMsg.text = e.message ?: "Couldn't add the event"
                 }
@@ -1918,7 +1968,7 @@ class BoardController(private val baseCtx: Context) {
             statusLine = "Removing “${ev.title}”…"; statusText.text = statusLine
             Thread {
                 val ok = runCatching { Writers.deleteEvent(ctx, ev.uid) }.getOrDefault(false)
-                handler.post {
+                post {
                     if (ok) {
                         DeletedEvents.suppress(ctx, ev.uid)
                         events = events.filterNot { it.uid == ev.uid && it.uid.isNotEmpty() }
@@ -2202,12 +2252,18 @@ class BoardController(private val baseCtx: Context) {
 
         dayBox.addView(timeline, lpMatchWrap())
 
-        // Auto-scroll to "now" (today) or the first event, once laid out.
-        val firstTop = ((((intervals.firstOrNull()?.first ?: dayStart) - dayStart) / 60_000L)
-            .toInt() - winStartMin) * pxPerMin
-        val target = (if (nowY >= 0) nowY else firstTop.toInt()) - dp(70)
-        dayContainer.post { dayContainer.scrollTo(0, target.coerceAtLeast(0)) }
+        // Auto-scroll to "now"/first event ONLY when the viewed day changes —
+        // re-renders from a 15-min sync mustn't yank a manually-scrolled view.
+        val dayKey = "$dayOffset"
+        if (dayKey != lastDayScrollKey) {
+            lastDayScrollKey = dayKey
+            val firstTop = ((((intervals.firstOrNull()?.first ?: dayStart) - dayStart) / 60_000L)
+                .toInt() - winStartMin) * pxPerMin
+            val target = (if (nowY >= 0) nowY else firstTop.toInt()) - dp(70)
+            dayContainer.post { dayContainer.scrollTo(0, target.coerceAtLeast(0)) }
+        }
     }
+    private var lastDayScrollKey = ""
 
     /** "7 AM" style hour label, locale-aware (24h shows "07"). */
     private fun hourLabel(time: java.util.Date): String =
@@ -2355,6 +2411,9 @@ class BoardController(private val baseCtx: Context) {
     private val dateFmt = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault())
 
     private fun updateClock() {
+        // "auto" theme flips on the clock (7pm/7am) — catch the crossing here
+        // and rebuild into the new palette. (No-op for fixed light/dark.)
+        if (store.isDark(baseCtx) != builtDark) { rebuild(); return }
         val now = Calendar.getInstance()
         val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
         if (clockFmt == null || is24 != clockFmt24) {
@@ -2404,7 +2463,11 @@ class BoardController(private val baseCtx: Context) {
         else
             SimpleDateFormat("MMM", Locale.getDefault()).format(ws.time) + " – " +
             SimpleDateFormat("MMM yyyy", Locale.getDefault()).format(weekEnd.time)
+        if (weekIsRows) renderWeekRows(ws) else renderWeekColumns(ws)
+    }
 
+    /** Landscape week: seven vertical day columns. */
+    private fun renderWeekColumns(ws: Calendar) {
         val today = Calendar.getInstance()
         val nameFmt = SimpleDateFormat("EEE", Locale.getDefault())
         for (i in 0..6) {
@@ -2434,6 +2497,105 @@ class BoardController(private val baseCtx: Context) {
             col.removeAllViews()
             for (ev in eventsInRange(dayStart, dayEnd)) col.addView(chip(ev, dayStart), lpMatchWrap(bottom = dp(6)))
         }
+    }
+
+    /** Portrait week: seven stacked day ROWS (day rail + agenda chips). */
+    private fun renderWeekRows(ws: Calendar) {
+        val today = Calendar.getInstance()
+        val nameFmt = SimpleDateFormat("EEE", Locale.getDefault())
+        weekRowsBox.removeAllViews()
+        for (i in 0..6) {
+            val dayCal = (ws.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, i) }
+            val dayStart = dayCal.timeInMillis
+            val dayEnd = (dayCal.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
+            val isToday = dayCal.get(Calendar.YEAR) == today.get(Calendar.YEAR) &&
+                    dayCal.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)
+
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                background = if (isToday) roundedStroke(TODAY_CARD, 16, dp(2), ACCENT) else rounded(CARD, 16)
+                elevation = dp(1).toFloat()
+                setPadding(dp(10), dp(10), dp(12), dp(10))
+                minimumHeight = dp(76)
+            }
+            // Left rail: weekday · big number · weather. Tap → that day's timeline.
+            val rail = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setOnClickListener { dayOffset = dayOffsetFor(dayCal); setView(VIEW_DAY) }
+            }
+            rail.addView(TextView(ctx).apply {
+                text = nameFmt.format(dayCal.time).uppercase(Locale.getDefault())
+                textSize = 12f; letterSpacing = 0.12f
+                setTextColor(if (isToday) ACCENT else FAINT)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            })
+            rail.addView(TextView(ctx).apply {
+                text = dayCal.get(Calendar.DAY_OF_MONTH).toString()
+                textSize = 22f; gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                if (isToday) { setTextColor(Color.WHITE); background = circle(ACCENT) } else setTextColor(INK)
+            }, LinearLayout.LayoutParams(dp(38), dp(38)).apply { topMargin = dp(2) })
+            val wx = Weather.daily(ctx, SimpleDateFormat("yyyy-MM-dd", Locale.US).format(dayCal.time))
+            rail.addView(TextView(ctx).apply {
+                text = if (wx != null) "${Weather.emoji(wx.third)} ${wx.first}°" else ""
+                textSize = 11f; setTextColor(MUTED); gravity = Gravity.CENTER
+            }, lpMatchWrap(top = dp(2)))
+            row.addView(rail, LinearLayout.LayoutParams(dp(96), WRAP))
+
+            // Events: agenda chips, all-day first then by time. Empty → faint dash.
+            val evBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
+            val evs = eventsInRange(dayStart, dayEnd)
+            if (evs.isEmpty()) {
+                evBox.addView(TextView(ctx).apply {
+                    text = "—"; textSize = 16f; setTextColor(FAINT); setPadding(dp(8), dp(6), 0, 0)
+                })
+            } else {
+                for (ev in evs) evBox.addView(rowChip(ev, dayStart), lpMatchWrap(bottom = dp(5)))
+            }
+            row.addView(evBox, LinearLayout.LayoutParams(0, WRAP, 1f).apply { leftMargin = dp(6) })
+            weekRowsBox.addView(row, lpMatchWrap(bottom = dp(8)))
+        }
+    }
+
+    /** Days from today (midnight) to [target] — DST-safe via rounding. */
+    private fun dayOffsetFor(target: Calendar): Int {
+        val a = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }
+        val b = (target.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }
+        return Math.round((b.timeInMillis - a.timeInMillis) / 86_400_000.0).toInt()
+    }
+
+    /** A slim horizontal agenda chip for the portrait week rows. */
+    private fun rowChip(ev: EventInstance, dayStart: Long): View {
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(mix(ev.color, CARD, 0.86f), 10)
+            setPadding(dp(4), dp(8), dp(12), dp(8))
+            minimumHeight = dp(44)
+            setOnClickListener { showDetails(ev) }
+        }
+        box.addView(View(ctx).apply { background = rounded(ev.color, 2) },
+            LinearLayout.LayoutParams(dp(4), dp(26)).apply { leftMargin = dp(4); rightMargin = dp(10) })
+        box.addView(TextView(ctx).apply {
+            text = when {
+                ev.allDay -> "All day"
+                ev.start < dayStart -> "…cont."
+                else -> timeFormat().format(ev.start)
+            }
+            textSize = 13f; setTextColor(MUTED); minWidth = dp(70)
+        })
+        box.addView(TextView(ctx).apply {
+            text = ev.title
+            textSize = 14.5f; setTextColor(INK)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { leftMargin = dp(8) })
+        return box
     }
 
     private fun renderToday() {
@@ -2627,17 +2789,18 @@ class BoardController(private val baseCtx: Context) {
             "🧺" to "Put laundry away", "🧸" to "Tidy your room", "🗑️" to "Take out the trash",
             "🚿" to "Shower", "🎵" to "Practice music", "🪴" to "Water the plants")
 
-        // Single source of truth: Palette.kt
-        private val BG = Palette.BG
-        private val CARD = Palette.CARD
-        private val TODAY_CARD = Palette.TODAY_CARD
-        private val PILL = Palette.PILL
-        private val INK = Palette.INK
-        private val MUTED = Palette.MUTED
-        private val FAINT = Palette.FAINT
-        private val ACCENT = Palette.ACCENT
-        private val OUT_CARD = Palette.OUT_CARD
-        private val LINE = Palette.LINE
-        private const val SCRIM = Palette.SCRIM
+        // Single source of truth: Palette.kt. Getters (not cached vals) so a
+        // theme switch — which rebuilds the board — is reflected live.
+        private val BG get() = Palette.BG
+        private val CARD get() = Palette.CARD
+        private val TODAY_CARD get() = Palette.TODAY_CARD
+        private val PILL get() = Palette.PILL
+        private val INK get() = Palette.INK
+        private val MUTED get() = Palette.MUTED
+        private val FAINT get() = Palette.FAINT
+        private val ACCENT get() = Palette.ACCENT
+        private val OUT_CARD get() = Palette.OUT_CARD
+        private val LINE get() = Palette.LINE
+        private val SCRIM get() = Palette.SCRIM
     }
 }

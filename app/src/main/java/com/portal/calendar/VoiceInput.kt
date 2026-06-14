@@ -65,8 +65,10 @@ class VoiceInput {
         var speechMs = 0
         var trailingSilenceMs = 0
         var sawSpeech = false
-        rec.startRecording()
+        // startRecording() can throw if the single mic is held by another app —
+        // keep it INSIDE the try so the finally always releases the AudioRecord.
         try {
+            rec.startRecording()
             while (!stopRequested && elapsedMs < MAX_MS) {
                 val n = rec.read(chunk, 0, chunk.size)
                 if (n <= 0) break

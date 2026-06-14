@@ -68,26 +68,48 @@ object ConfigBundle {
         val prefsIn = root.optJSONObject("prefs")
             ?: throw IllegalArgumentException("the backup code is missing its settings")
 
-        // Replace the config prefs wholesale (clone semantics the user confirmed).
-        val editor = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear()
-        for (k in prefsIn.keys()) {
-            val e = prefsIn.getJSONObject(k)
-            when (e.optString("t")) {
-                "b" -> editor.putBoolean(k, e.getBoolean("v"))
-                "i" -> editor.putInt(k, e.getInt("v"))
-                "l" -> editor.putLong(k, e.getLong("v"))
-                "f" -> editor.putFloat(k, e.getDouble("v").toFloat())
-                else -> editor.putString(k, e.getString("v"))
+        // VALIDATE EVERYTHING before touching the device — a malformed bundle
+        // must not clear prefs and then throw mid-restore, half-bricking the
+        // setup. Parse all prefs + file payloads up front; only apply if clean.
+        val parsedPrefs = ArrayList<Triple<String, String, Any>>() // key, type, value
+        try {
+            for (k in prefsIn.keys()) {
+                val e = prefsIn.getJSONObject(k)
+                val t = e.optString("t")
+                val v: Any = when (t) {
+                    "b" -> e.getBoolean("v")
+                    "i" -> e.getInt("v")
+                    "l" -> e.getLong("v")
+                    "f" -> e.getDouble("v")
+                    else -> e.getString("v")
+                }
+                parsedPrefs.add(Triple(k, t, v))
             }
+        } catch (e: Exception) {
+            throw IllegalArgumentException("the backup code's settings are malformed — nothing was changed")
+        }
+        val parsedFiles = ArrayList<Pair<String, String>>()
+        root.optJSONObject("files")?.let { files ->
+            try {
+                for (name in files.keys()) {
+                    if (name !in DATA_FILES) continue // ignore anything unexpected
+                    parsedFiles.add(name to files.getString(name))
+                }
+            } catch (e: Exception) {
+                throw IllegalArgumentException("the backup code's data is malformed — nothing was changed")
+            }
+        }
+
+        // Apply (validated): replace config prefs wholesale, then data files.
+        val editor = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear()
+        for ((k, t, v) in parsedPrefs) when (t) {
+            "b" -> editor.putBoolean(k, v as Boolean)
+            "i" -> editor.putInt(k, v as Int)
+            "l" -> editor.putLong(k, v as Long)
+            "f" -> editor.putFloat(k, (v as Double).toFloat())
+            else -> editor.putString(k, v as String)
         }
         editor.commit()
-
-        // Restore data files (write raw text; format-agnostic).
-        root.optJSONObject("files")?.let { files ->
-            for (name in files.keys()) {
-                if (name !in DATA_FILES) continue // ignore anything unexpected
-                Data.writeRaw(ctx, name, files.getString(name))
-            }
-        }
+        for ((name, text) in parsedFiles) Data.writeRaw(ctx, name, text)
     }
 }

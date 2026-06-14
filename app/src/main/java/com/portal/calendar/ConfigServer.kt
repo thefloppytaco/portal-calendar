@@ -243,17 +243,20 @@ class ConfigServer(
             json(org.json.JSONObject()
                 .put("weekStart", store.weekStart())
                 .put("defaultView", store.defaultView())
-                .put("orientation", store.orientation()).toString())
+                .put("orientation", store.orientation())
+                .put("theme", store.theme()).toString())
         s.uri == "/api/layout" && s.method == Method.POST -> {
             val o = org.json.JSONObject(readBody(s))
             if (o.has("weekStart")) store.setWeekStart(o.getInt("weekStart"))
             if (o.has("defaultView")) store.setDefaultView(o.getInt("defaultView"))
             if (o.has("orientation")) store.setOrientation(o.getString("orientation"))
-            onConfigChanged() // re-render with the new week start; orientation applied by the board
+            if (o.has("theme")) store.setTheme(o.getString("theme"))
+            onConfigChanged() // re-render / rebuild (week start, theme, orientation)
             json(org.json.JSONObject()
                 .put("weekStart", store.weekStart())
                 .put("defaultView", store.defaultView())
-                .put("orientation", store.orientation()).toString())
+                .put("orientation", store.orientation())
+                .put("theme", store.theme()).toString())
         }
         s.uri == "/api/scale" && s.method == Method.GET ->
             json("{\"scale\":${store.uiScale()}}")

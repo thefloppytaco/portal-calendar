@@ -115,6 +115,28 @@ class ConfigStore(ctx: Context) {
         prefs.edit().putString("orientation", clean).commit()
     }
 
+    /** Theme: "light" (default) / "dark" / "auto" (night by clock) / "system". */
+    fun theme(): String = prefs.getString("theme", "light") ?: "light"
+
+    fun setTheme(v: String) {
+        val clean = if (v in listOf("light", "dark", "auto", "system")) v else "light"
+        prefs.edit().putString("theme", clean).commit()
+    }
+
+    /** Resolves the theme to dark-on/off right now (for auto/system). */
+    fun isDark(ctx: Context): Boolean = when (theme()) {
+        "dark" -> true
+        "light" -> false
+        "auto" -> { // night by the clock — dark 7pm–7am
+            val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            h >= 19 || h < 7
+        }
+        "system" -> (ctx.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        else -> false
+    }
+
     companion object {
         private const val KEY = "feeds"
     }

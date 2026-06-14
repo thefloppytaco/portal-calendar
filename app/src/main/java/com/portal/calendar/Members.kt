@@ -79,30 +79,36 @@ object Members {
      */
     fun save(ctx: Context, json: String) {
         val incoming = JSONArray(json)
-        val current = Data.readArray(ctx, FILE)
-        val currentPin = HashMap<String, String>()
-        for (i in 0 until current.length()) {
-            val o = current.getJSONObject(i)
-            currentPin[o.optString("id")] = o.optString("pin")
+        // Read existing PINs, validate, and write — all under the one lock, so
+        // a concurrent seed/save can't be clobbered (the read-then-write was
+        // a lost-update window otherwise).
+        Data.mutate(ctx, FILE) { current ->
+            val currentPin = HashMap<String, String>()
+            for (i in 0 until current.length()) {
+                val o = current.getJSONObject(i)
+                currentPin[o.optString("id")] = o.optString("pin")
+            }
+            val clean = JSONArray()
+            for (i in 0 until incoming.length()) {
+                val o = incoming.getJSONObject(i)
+                val name = o.optString("name").trim()
+                if (name.isEmpty()) throw IllegalArgumentException("member #${i + 1} has no name")
+                parse(o.optString("color")) // validate
+                val id = o.optString("id").ifEmpty { UUID.randomUUID().toString() }
+                val pin = if (o.has("pin")) o.optString("pin").trim()
+                          else currentPin[id] ?: ""
+                if (pin.isNotEmpty() && !pin.matches(Regex("\\d{4}")))
+                    throw IllegalArgumentException("$name's PIN must be 4 digits (or empty)")
+                clean.put(JSONObject()
+                    .put("id", id)
+                    .put("name", name)
+                    .put("color", o.optString("color"))
+                    .put("pin", pin))
+            }
+            // Replace contents in place (Data.mutate writes the same array back).
+            while (current.length() > 0) current.remove(current.length() - 1)
+            for (i in 0 until clean.length()) current.put(clean.get(i))
         }
-        val clean = JSONArray()
-        for (i in 0 until incoming.length()) {
-            val o = incoming.getJSONObject(i)
-            val name = o.optString("name").trim()
-            if (name.isEmpty()) throw IllegalArgumentException("member #${i + 1} has no name")
-            parse(o.optString("color")) // validate
-            val id = o.optString("id").ifEmpty { UUID.randomUUID().toString() }
-            val pin = if (o.has("pin")) o.optString("pin").trim()
-                      else currentPin[id] ?: ""
-            if (pin.isNotEmpty() && !pin.matches(Regex("\\d{4}")))
-                throw IllegalArgumentException("$name's PIN must be 4 digits (or empty)")
-            clean.put(JSONObject()
-                .put("id", id)
-                .put("name", name)
-                .put("color", o.optString("color"))
-                .put("pin", pin))
-        }
-        Data.writeArray(ctx, FILE, clean)
         App.instance.notifyDataChanged()
     }
 

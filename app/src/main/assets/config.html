@@ -387,6 +387,13 @@
       <option value="portrait">Portrait</option>
       <option value="auto">Auto-rotate</option>
     </select>
+    <label for="theme" style="margin-top:10px;">Theme</label>
+    <select id="theme" style="width:100%;" onchange="saveLayout()">
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+      <option value="auto">Auto (dark at night)</option>
+      <option value="system">Match system</option>
+    </select>
     <div style="font-size:13px;color:#737983;margin-top:8px;">Mount the Portal sideways? Pick Portrait, or pick Auto-rotate and just turn it — the board flips and reflows to match.</div>
     <div id="layoutMsg" class="msgline"></div>
   </div>
@@ -1736,13 +1743,15 @@ async function loadLayout(){
     document.getElementById('weekStart').value = l.weekStart;
     document.getElementById('defaultView').value = l.defaultView;
     document.getElementById('orientation').value = l.orientation;
+    document.getElementById('theme').value = l.theme;
   } catch(e){}
 }
 async function saveLayout(){
   const body = {
     weekStart: parseInt(document.getElementById('weekStart').value),
     defaultView: parseInt(document.getElementById('defaultView').value),
-    orientation: document.getElementById('orientation').value
+    orientation: document.getElementById('orientation').value,
+    theme: document.getElementById('theme').value
   };
   try {
     const r = await fetch('/api/layout', {method:'POST', body: JSON.stringify(body)});

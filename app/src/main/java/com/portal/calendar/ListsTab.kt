@@ -286,11 +286,11 @@ class ListsTab(
     companion object {
         private const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         private const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
-        private val CARD = Palette.CARD
-        private val PILL = Palette.PILL
-        private val INK = Palette.INK
-        private val MUTED = Palette.MUTED
-        private val FAINT = Palette.FAINT
-        private val ACCENT = Palette.ACCENT
+        private val CARD get() = Palette.CARD
+        private val PILL get() = Palette.PILL
+        private val INK get() = Palette.INK
+        private val MUTED get() = Palette.MUTED
+        private val FAINT get() = Palette.FAINT
+        private val ACCENT get() = Palette.ACCENT
     }
 }

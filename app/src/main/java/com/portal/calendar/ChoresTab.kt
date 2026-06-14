@@ -252,11 +252,11 @@ class ChoresTab(
     companion object {
         private const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         private const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
-        private val CARD = Palette.CARD
-        private val BG_SOFT = Palette.CARD_SOFT
-        private val PILL = Palette.PILL
-        private val INK = Palette.INK
-        private val MUTED = Palette.MUTED
-        private val ACCENT = Palette.ACCENT
+        private val CARD get() = Palette.CARD
+        private val BG_SOFT get() = Palette.CARD_SOFT
+        private val PILL get() = Palette.PILL
+        private val INK get() = Palette.INK
+        private val MUTED get() = Palette.MUTED
+        private val ACCENT get() = Palette.ACCENT
     }
 }

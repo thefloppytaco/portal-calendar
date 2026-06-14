@@ -209,11 +209,11 @@ class MealsTab(
         private val SLOT_EMOJI = listOf(
             "breakfast" to "🍳 BREAKFAST", "lunch" to "🥪 LUNCH",
             "dinner" to "🍝 DINNER", "snack" to "🍎 SNACK")
-        private val CARD = Palette.CARD
-        private val PILL = Palette.PILL
-        private val INK = Palette.INK
-        private val MUTED = Palette.MUTED
-        private val FAINT = Palette.FAINT
-        private val ACCENT = Palette.ACCENT
+        private val CARD get() = Palette.CARD
+        private val PILL get() = Palette.PILL
+        private val INK get() = Palette.INK
+        private val MUTED get() = Palette.MUTED
+        private val FAINT get() = Palette.FAINT
+        private val ACCENT get() = Palette.ACCENT
     }
 }

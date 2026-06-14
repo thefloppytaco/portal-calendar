@@ -22,6 +22,7 @@ class MainActivity : Activity() {
 
     private lateinit var board: BoardController
     private var lastOrientation = Configuration.ORIENTATION_UNDEFINED
+    private var lastNightMode = Configuration.UI_MODE_NIGHT_UNDEFINED
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,19 +31,25 @@ class MainActivity : Activity() {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         lastOrientation = resources.configuration.orientation
+        lastNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
         attachBoard(reopenSettings = false)
         hideSystemUi()
     }
 
     /**
-     * In "auto" orientation the activity requests SENSOR, so physically turning
-     * the Portal fires a config change here (the manifest keeps us from being
-     * recreated). Rebuild the board so its layout reflows tall⇄wide to match.
+     * In "auto" orientation the accelerometer listener flips us between explicit
+     * PORTRAIT/LANDSCAPE locks, which fires a config change here (the manifest's
+     * configChanges keeps us from being recreated). Rebuild the board so its
+     * layout reflows tall⇄wide to match.
      */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        if (newConfig.orientation != lastOrientation) {
+        val night = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        // Orientation change (auto-rotate) OR system night-mode change (the
+        // "system" theme) both need the board rebuilt to reflow / recolor.
+        if (newConfig.orientation != lastOrientation || night != lastNightMode) {
             lastOrientation = newConfig.orientation
+            lastNightMode = night
             board.stop()
             attachBoard(reopenSettings = false)
             hideSystemUi()
