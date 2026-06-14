@@ -1,13 +1,17 @@
-# Family Calendar for Meta Portal
+# PortalHub — family hub for Meta Portal
 
 [![Latest release](https://img.shields.io/github/v/release/thefloppytaco/portal-calendar)](https://github.com/thefloppytaco/portal-calendar/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Get it on OpenPortal](https://andronedev.github.io/openportal/openportal-badge.svg)](https://andronedev.github.io/openportal/apps/com.portal.calendar)
 
 Turn a discontinued **Meta Portal+ (gen 1)** into an always-on family hub — a wall
 display that syncs everyone's Google and Apple calendars, runs chore charts with star
-rewards, keeps shared lists and a meal plan, and (optionally) gets AI superpowers.
-Think commercial family-display subscription, built from a $30 secondhand Portal,
-running entirely on your LAN.
+rewards, keeps shared lists and a meal plan, takes voice commands, and (optionally)
+gets AI superpowers. Think commercial family-display subscription, built from a $30
+secondhand Portal, running entirely on your LAN.
+
+> Formerly "Family Calendar" — the app now shows as **PortalHub** on the device.
+> The package, repo and install links are unchanged, so existing installs keep updating.
 
 | Week board | Month board |
 |---|---|
@@ -16,8 +20,11 @@ running entirely on your LAN.
 ## Everything it does
 
 ### 📅 Calendar
-- **Four views** — Day, Week, Month, and Plan (a rolling two-week agenda); the
-  always-on takeover lands on the current week.
+- **Four views** — a **rolling Day timeline** (hour grid with a live "now" line, where
+  overlapping events sit side-by-side in columns so you can see the clashes), Week,
+  Month, and Plan (a two-week agenda). Pick which one the board opens on.
+- **Your week, your way** — set the first day of the week (Sunday/Monday/Saturday or
+  locale) and run the board in **landscape or portrait** (it reflows to a tall layout).
 - **Reads any iCal feed**: Google Calendar secret addresses, iCloud public links,
   any `.ics`/`webcal://` URL. Recurring events, edited instances and cancellations
   handled properly. One color per person.
@@ -56,6 +63,10 @@ running entirely on your LAN.
 Entirely opt-in: until the Settings toggle is on **and** a key is saved, no AI
 options appear anywhere. The key is validated against Google's live model list, the
 model picker is populated from it, and calls auto-fall-back if a model is retired.
+- **🎤 Voice commands** — tap the mic and speak ("add dentist Tuesday at 3", "put eggs
+  on groceries"). Gemini transcribes and acts on your *own* key — a private,
+  no-subscription alternative to Alexa. Tap-to-talk (the Portal has no wake-word for
+  side-loaded apps), and it routes through the same confirm-able action pipeline.
 - **Smart Import** — paste an email or photograph a school flyer; AI proposes events,
   list items and chores, and nothing is added until you confirm.
 - **✨ Plan a meal** — name a dish (board or page): AI writes the recipe, slots it
@@ -67,6 +78,9 @@ model picker is populated from it, and calls auto-fall-back if a model is retire
 ### 🛡 Family-proofing
 - **Kid lock** — an optional 4-digit PIN gates adding, Settings, and deletions on
   the touchscreen, while chore and list check-offs stay kid-friendly.
+- **Backup & clone** — export the whole setup (calendars, members, chores/lists/meals,
+  layout, *and* your connected accounts + AI key) as one code and paste it into another
+  Portal to clone it. The code holds credentials, so keep it private.
 - **Feature toggles** — hide the Chores, Lists or Meals tabs entirely.
 - **Display size** — a live slider (70–160%) zooms the whole UI; drag on your phone
   and watch the board resize (10″ Portals like ~110–125%).
@@ -83,7 +97,15 @@ model picker is populated from it, and calls auto-fall-back if a model is retire
 
 ## Install
 
-Grab the APK from [Releases](https://github.com/thefloppytaco/portal-calendar/releases), then:
+**No `adb`?** Install straight from a Chromium browser with
+[OpenPortal](https://andronedev.github.io/openportal/apps/com.portal.calendar) — plug the
+Portal in over USB, click install, done. (A community catalog by
+[@andronedev](https://github.com/andronedev); the Portal pulls the APK from these releases
+itself.)
+
+Or with `adb` — grab
+[`portal-calendar.apk`](https://github.com/thefloppytaco/portal-calendar/releases/latest/download/portal-calendar.apk)
+(that link always points at the newest release), then:
 
 ```sh
 adb install -r portal-calendar.apk
