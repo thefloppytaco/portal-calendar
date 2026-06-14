@@ -24,7 +24,9 @@ secondhand Portal, running entirely on your LAN.
   overlapping events sit side-by-side in columns so you can see the clashes), Week,
   Month, and Plan (a two-week agenda). Pick which one the board opens on.
 - **Your week, your way** — set the first day of the week (Sunday/Monday/Saturday or
-  locale) and run the board in **landscape or portrait** (it reflows to a tall layout).
+  locale) and run the board in **landscape, portrait, or auto-rotate** — in auto it
+  follows the accelerometer and flips tall⇄wide when you physically turn the Portal,
+  reflowing the layout to match.
 - **Reads any iCal feed**: Google Calendar secret addresses, iCloud public links,
   any `.ics`/`webcal://` URL. Recurring events, edited instances and cancellations
   handled properly. One color per person.
