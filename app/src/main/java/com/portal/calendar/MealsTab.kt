@@ -86,7 +86,8 @@ class MealsTab(
         val ws = Calendar.getInstance()
         ws.set(Calendar.HOUR_OF_DAY, 0); ws.set(Calendar.MINUTE, 0)
         ws.set(Calendar.SECOND, 0); ws.set(Calendar.MILLISECOND, 0)
-        while (ws.get(Calendar.DAY_OF_WEEK) != ws.firstDayOfWeek) ws.add(Calendar.DAY_OF_MONTH, -1)
+        val wkStart = ConfigStore(ctx).weekStartResolved()
+        while (ws.get(Calendar.DAY_OF_WEEK) != wkStart) ws.add(Calendar.DAY_OF_MONTH, -1)
         ws.add(Calendar.DAY_OF_MONTH, weekOffset * 7)
         val rangeFmt = SimpleDateFormat("MMM d", Locale.getDefault())
         val weekEnd = (ws.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 6) }

@@ -34,6 +34,18 @@ object Data {
         return result
     }
 
+    /** Atomic raw-text write (used by config import to restore files verbatim). */
+    @Synchronized
+    fun writeRaw(ctx: Context, name: String, text: String) {
+        val tmp = File(ctx.filesDir, "$name.tmp")
+        FileOutputStream(tmp).use { os ->
+            os.write(text.toByteArray(Charsets.UTF_8)); os.fd.sync()
+        }
+        if (!tmp.renameTo(File(ctx.filesDir, name))) {
+            tmp.copyTo(File(ctx.filesDir, name), overwrite = true); tmp.delete()
+        }
+    }
+
     private fun readImpl(ctx: Context, name: String): JSONArray {
         val f = File(ctx.filesDir, name)
         if (!f.exists()) return JSONArray()

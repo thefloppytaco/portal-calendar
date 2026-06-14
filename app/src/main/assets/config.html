@@ -366,6 +366,41 @@
   </div>
 
   <div class="card" data-tab="settings">
+    <strong>Board layout</strong>
+    <label for="weekStart" style="margin-top:10px;">Week starts on</label>
+    <select id="weekStart" style="width:100%;" onchange="saveLayout()">
+      <option value="0">Locale default</option>
+      <option value="1">Sunday</option>
+      <option value="2">Monday</option>
+      <option value="7">Saturday</option>
+    </select>
+    <label for="defaultView" style="margin-top:10px;">Board opens on</label>
+    <select id="defaultView" style="width:100%;" onchange="saveLayout()">
+      <option value="1">Week</option>
+      <option value="2">Month</option>
+      <option value="0">Day (rolling timeline)</option>
+      <option value="3">Plan (2 weeks)</option>
+    </select>
+    <label for="orientation" style="margin-top:10px;">Orientation</label>
+    <select id="orientation" style="width:100%;" onchange="saveLayout()">
+      <option value="landscape">Landscape</option>
+      <option value="portrait">Portrait</option>
+      <option value="auto">Auto-rotate</option>
+    </select>
+    <div style="font-size:13px;color:#737983;margin-top:8px;">Mount the Portal sideways? Pick Portrait. The board reflows to a tall layout.</div>
+    <div id="layoutMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
+    <strong>Backup &amp; copy to another Portal</strong>
+    <p style="font-size:13px;color:#737983;margin:6px 0 10px;">Export everything — calendars, members, chores, lists, meals, layout, <em>and</em> your connected accounts &amp; API key — as one code. Paste it into another Portal's setup page to clone this one. The code contains credentials, so treat it like a password.</p>
+    <button class="ghost" style="width:100%;" onclick="exportConfig()">Export this Portal's config</button>
+    <textarea id="cfgBlob" placeholder="Exported code appears here — or paste one to import" style="width:100%;height:90px;margin-top:10px;font-family:monospace;font-size:12px;"></textarea>
+    <button class="ghost" style="width:100%;margin-top:8px;" onclick="importConfig()">Import / restore from the code above</button>
+    <div id="cfgMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
     <strong>Two-way sync</strong>
     <p style="font-size:13px;color:#737983;margin:6px 0 10px;">Connect an account so events can be added from this page. Events are created in the real calendar, so they sync to everyone's devices.</p>
 
@@ -1694,11 +1729,56 @@ document.querySelectorAll('.selfurl').forEach(e => e.textContent = location.host
 maybeStartWizard();
 showTab('calendar');
 load();
+// ----- board layout (week start / default view / orientation) -----
+async function loadLayout(){
+  try {
+    const l = await (await fetch('/api/layout')).json();
+    document.getElementById('weekStart').value = l.weekStart;
+    document.getElementById('defaultView').value = l.defaultView;
+    document.getElementById('orientation').value = l.orientation;
+  } catch(e){}
+}
+async function saveLayout(){
+  const body = {
+    weekStart: parseInt(document.getElementById('weekStart').value),
+    defaultView: parseInt(document.getElementById('defaultView').value),
+    orientation: document.getElementById('orientation').value
+  };
+  try {
+    const r = await fetch('/api/layout', {method:'POST', body: JSON.stringify(body)});
+    if (!r.ok) throw new Error((await r.json()).error || 'failed');
+    show('layoutMsg', '✓ Saved', true);
+  } catch(e){ show('layoutMsg', e.message, false); }
+}
+
+// ----- backup / clone -----
+async function exportConfig(){
+  show('cfgMsg', 'Exporting…', true);
+  try {
+    const blob = await (await fetch('/api/export')).text();
+    document.getElementById('cfgBlob').value = blob.trim();
+    show('cfgMsg', '✓ Copied below — paste it into another Portal to clone this one', true);
+  } catch(e){ show('cfgMsg', e.message, false); }
+}
+async function importConfig(){
+  const code = document.getElementById('cfgBlob').value.trim();
+  if (!code) return show('cfgMsg', 'Paste an exported code first', false);
+  if (!confirm('Replace this Portal’s calendars, members and settings with the imported ones?')) return;
+  try {
+    const r = await fetch('/api/import', {method:'POST', body: code});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    show('cfgMsg', '✓ Imported — reloading…', true);
+    setTimeout(() => location.reload(), 1200);
+  } catch(e){ show('cfgMsg', e.message, false); }
+}
+
 loadSaver();
 loadWriters();
 loadScale();
 loadWx();
 loadPin();
+loadLayout();
 loadAi();
 </script>
 </body>

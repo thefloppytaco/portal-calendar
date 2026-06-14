@@ -231,6 +231,30 @@ class ConfigServer(
             val count = App.instance.sync.validateFeed(url)
             json("{\"ok\":true,\"events\":$count}")
         }
+        s.uri == "/api/export" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "text/plain", ConfigBundle.export(ctx))
+        s.uri == "/api/import" && s.method == Method.POST -> {
+            ConfigBundle.import(ctx, readBody(s))
+            App.instance.notifyDataChanged() // refresh chores/lists/meals tabs
+            onConfigChanged() // rebuilds the board (layout/feeds/creds all may differ)
+            json("{\"ok\":true}")
+        }
+        s.uri == "/api/layout" && s.method == Method.GET ->
+            json(org.json.JSONObject()
+                .put("weekStart", store.weekStart())
+                .put("defaultView", store.defaultView())
+                .put("orientation", store.orientation()).toString())
+        s.uri == "/api/layout" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            if (o.has("weekStart")) store.setWeekStart(o.getInt("weekStart"))
+            if (o.has("defaultView")) store.setDefaultView(o.getInt("defaultView"))
+            if (o.has("orientation")) store.setOrientation(o.getString("orientation"))
+            onConfigChanged() // re-render with the new week start; orientation applied by the board
+            json(org.json.JSONObject()
+                .put("weekStart", store.weekStart())
+                .put("defaultView", store.defaultView())
+                .put("orientation", store.orientation()).toString())
+        }
         s.uri == "/api/scale" && s.method == Method.GET ->
             json("{\"scale\":${store.uiScale()}}")
         s.uri == "/api/scale" && s.method == Method.POST -> {

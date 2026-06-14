@@ -58,7 +58,7 @@ object Chores {
             val c = chores.getJSONObject(i)
             choreMember[c.optString("id")] = c.optString("memberId")
         }
-        val weekStart = weekStartStr()
+        val weekStart = weekStartStr(ctx)
         val stars = JSONObject()
         for (i in 0 until done.length()) {
             val d = done.getJSONObject(i)
@@ -221,11 +221,12 @@ object Chores {
             if (done.getJSONObject(i).optString("date") < cut) done.remove(i)
     }
 
-    private fun weekStartStr(): String {
+    private fun weekStartStr(ctx: Context): String {
         val c = Calendar.getInstance()
         c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0)
         c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
-        while (c.get(Calendar.DAY_OF_WEEK) != c.firstDayOfWeek) c.add(Calendar.DAY_OF_MONTH, -1)
+        val wkStart = ConfigStore(ctx).weekStartResolved()
+        while (c.get(Calendar.DAY_OF_WEEK) != wkStart) c.add(Calendar.DAY_OF_MONTH, -1)
         return dayFmt().format(c.time)
     }
 }

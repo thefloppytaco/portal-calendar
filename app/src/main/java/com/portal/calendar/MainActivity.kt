@@ -2,6 +2,7 @@ package com.portal.calendar
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
@@ -25,11 +26,21 @@ class MainActivity : Activity() {
         hideSystemUi()
     }
 
+    /** Honors the configured orientation (overrides the manifest's landscape lock). */
+    private fun applyOrientation() {
+        requestedOrientation = when (App.instance.store.orientation()) {
+            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "auto" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            else -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+    }
+
     /**
      * (Re)build the board in place — one frame swap instead of an activity
      * recreate, so committing a new display size doesn't flash.
      */
     private fun attachBoard(reopenSettings: Boolean) {
+        applyOrientation() // re-applied on every (re)build, incl. orientation changes
         board = BoardController(this)
         board.onExit = { goHome() }
         board.onScaleCommitted = { fromSettings ->

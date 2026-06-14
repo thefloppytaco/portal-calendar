@@ -84,6 +84,37 @@ class ConfigStore(ctx: Context) {
         prefs.edit().putFloat("ui_scale", v.coerceIn(0.7f, 1.6f)).commit()
     }
 
+    /**
+     * First day of the week as a java.util.Calendar day constant (1=Sun … 7=Sat),
+     * or 0 = follow the device locale. Affects every week/month layout + the
+     * chore/meal week boundaries.
+     */
+    fun weekStart(): Int = prefs.getInt("week_start", 0)
+
+    fun weekStartResolved(): Int {
+        val v = weekStart()
+        return if (v in 1..7) v else java.util.Calendar.getInstance().firstDayOfWeek
+    }
+
+    fun setWeekStart(day: Int) {
+        prefs.edit().putInt("week_start", if (day in 1..7) day else 0).commit()
+    }
+
+    /** Which calendar view the board opens on. 0=Day 1=Week 2=Month 3=Plan. */
+    fun defaultView(): Int = prefs.getInt("default_view", 1).coerceIn(0, 3)
+
+    fun setDefaultView(v: Int) {
+        prefs.edit().putInt("default_view", v.coerceIn(0, 3)).commit()
+    }
+
+    /** "landscape" (default), "portrait", or "auto" (sensor). */
+    fun orientation(): String = prefs.getString("orientation", "landscape") ?: "landscape"
+
+    fun setOrientation(v: String) {
+        val clean = if (v in listOf("landscape", "portrait", "auto")) v else "landscape"
+        prefs.edit().putString("orientation", clean).commit()
+    }
+
     companion object {
         private const val KEY = "feeds"
     }

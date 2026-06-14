@@ -14,6 +14,7 @@ import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -134,6 +135,7 @@ class BoardController(private val baseCtx: Context) {
 
     init {
         view = buildUi()
+        setView(store.defaultView()) // open on the user's chosen view
     }
 
     private val clockTick = object : Runnable {
@@ -148,9 +150,16 @@ class BoardController(private val baseCtx: Context) {
             handler.postDelayed(this, SYNC_INTERVAL_MS)
         }
     }
+    private var builtWeekStart = store.weekStart()
+    private var builtOrientation = store.orientation()
+
     private val configListener: () -> Unit = {
-        if (store.uiScale() != uiScale) {
-            // Scale changed (from the config page) — swap the board in place.
+        // Scale, week-start, and orientation all change the built structure
+        // (densities, the static month weekday header, the layout axis), so a
+        // change to any of them swaps the board in place rather than re-rendering.
+        if (store.uiScale() != uiScale ||
+            store.weekStart() != builtWeekStart ||
+            store.orientation() != builtOrientation) {
             onScaleCommitted?.invoke(false)
                 ?: (baseCtx as? android.app.Activity)?.recreate()
         } else {
@@ -294,17 +303,33 @@ class BoardController(private val baseCtx: Context) {
 
     private lateinit var contentRow: LinearLayout
 
+    /** Portrait when explicitly chosen, or when "auto" and the screen is tall. */
+    private fun isPortrait(): Boolean = when (store.orientation()) {
+        "portrait" -> true
+        "auto" -> ctx.resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_PORTRAIT
+        else -> false
+    }
+
     private fun buildUi(): FrameLayout {
         val root = FrameLayout(ctx)
         root.setBackgroundColor(BG)
 
         val row = LinearLayout(ctx)
-        row.orientation = LinearLayout.HORIZONTAL
         root.addView(row, FrameLayout.LayoutParams(MATCH, MATCH))
         contentRow = row
 
-        row.addView(buildSidebar(), LinearLayout.LayoutParams(dp(300), MATCH))
-        row.addView(buildMainArea(), LinearLayout.LayoutParams(0, MATCH, 1f))
+        if (isPortrait()) {
+            // Tall layout: the sidebar becomes a top strip (fixed height so its
+            // weighted "today" scroll still has room), calendar fills below.
+            row.orientation = LinearLayout.VERTICAL
+            row.addView(buildSidebar(), LinearLayout.LayoutParams(MATCH, dp(360)))
+            row.addView(buildMainArea(), LinearLayout.LayoutParams(MATCH, 0, 1f))
+        } else {
+            row.orientation = LinearLayout.HORIZONTAL
+            row.addView(buildSidebar(), LinearLayout.LayoutParams(dp(300), MATCH))
+            row.addView(buildMainArea(), LinearLayout.LayoutParams(0, MATCH, 1f))
+        }
 
         settingsOverlay = buildSettingsOverlay()
         root.addView(settingsOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -503,7 +528,7 @@ class BoardController(private val baseCtx: Context) {
         choreDaysRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         val chips = ArrayList<TextView>()
         val dowCal = Calendar.getInstance()
-        while (dowCal.get(Calendar.DAY_OF_WEEK) != dowCal.firstDayOfWeek)
+        while (dowCal.get(Calendar.DAY_OF_WEEK) != store.weekStartResolved())
             dowCal.add(Calendar.DAY_OF_MONTH, -1)
         val dowFmt = SimpleDateFormat("EEEEE", Locale.getDefault())
         repeat(7) {
@@ -929,7 +954,7 @@ class BoardController(private val baseCtx: Context) {
         mealsTab.reset() // its private week offset must come home too
         closeOverlays()
         if (currentTab != 0) setTab(0)
-        setView(VIEW_WEEK)
+        setView(store.defaultView())
     }
 
     private fun buildSidebar(): View {
@@ -1079,33 +1104,53 @@ class BoardController(private val baseCtx: Context) {
         tabPanels = listOf(weekPanel, choresTab.view, listsTab.view, mealsTab.view)
 
         // Nav row -------------------------------------------------------
-        val nav = LinearLayout(ctx).apply {
+        // Portrait is too narrow to fit the title + all controls on one line
+        // (the weighted title gets starved to a sliver), so stack them.
+        val portrait = isPortrait()
+        monthLabel = TextView(ctx).apply {
+            textSize = if (portrait) 23f else 27f
+            setTextColor(INK)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        val controls = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        monthLabel = TextView(ctx).apply {
-            textSize = 27f
-            setTextColor(INK)
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        }
-        nav.addView(monthLabel, LinearLayout.LayoutParams(0, WRAP, 1f))
-        nav.addView(accentButton("+ Add") { requirePin { showAddOverlay(Calendar.getInstance()) } })
-        nav.addView(spacer(dp(10)))
+        controls.addView(accentButton("+ Add") { requirePin { showAddOverlay(Calendar.getInstance()) } })
+        controls.addView(spacer(dp(10)))
         val toggles = ArrayList<TextView>()
         listOf("Day", "Week", "Month", "Plan").forEachIndexed { i, label ->
             val t = navButton(label) { setView(i) }
             toggles.add(t)
-            nav.addView(t)
+            controls.addView(t)
         }
         viewToggles = toggles
-        nav.addView(spacer(dp(10)))
-        nav.addView(navButton("‹") { moveOffset(-1); renderCalendar() })
-        nav.addView(navButton("Today") {
+        controls.addView(spacer(dp(10)))
+        controls.addView(navButton("‹") { moveOffset(-1); renderCalendar() })
+        controls.addView(navButton("Today") {
             weekOffset = 0; monthOffset = 0; dayOffset = 0; scheduleOffset = 0
             renderCalendar()
         })
-        nav.addView(navButton("›") { moveOffset(1); renderCalendar() })
-        weekPanel.addView(nav, lpMatchWrap(bottom = dp(14)))
+        controls.addView(navButton("›") { moveOffset(1); renderCalendar() })
+
+        if (portrait) {
+            // Title on its own line; controls wrap below, scrollable if needed.
+            weekPanel.addView(monthLabel, lpMatchWrap(bottom = dp(8)))
+            weekPanel.addView(HorizontalScrollView(ctx).apply {
+                isHorizontalScrollBarEnabled = false
+                addView(controls)
+            }, lpMatchWrap(bottom = dp(14)))
+        } else {
+            val nav = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            nav.addView(monthLabel, LinearLayout.LayoutParams(0, WRAP, 1f))
+            nav.addView(controls)
+            weekPanel.addView(nav, lpMatchWrap(bottom = dp(14)))
+        }
         styleToggles()
 
         // Day headers + columns ------------------------------------------
@@ -1277,7 +1322,7 @@ class BoardController(private val baseCtx: Context) {
         val dowRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         val fmt = SimpleDateFormat("EEE", Locale.getDefault())
         val c = Calendar.getInstance()
-        while (c.get(Calendar.DAY_OF_WEEK) != c.firstDayOfWeek) c.add(Calendar.DAY_OF_MONTH, -1)
+        while (c.get(Calendar.DAY_OF_WEEK) != store.weekStartResolved()) c.add(Calendar.DAY_OF_MONTH, -1)
         for (i in 0..6) {
             dowRow.addView(TextView(ctx).apply {
                 text = fmt.format(c.time).uppercase(Locale.getDefault())
@@ -1990,7 +2035,7 @@ class BoardController(private val baseCtx: Context) {
         monthLabel.text = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(first.time)
 
         val gridStart = first.clone() as Calendar
-        while (gridStart.get(Calendar.DAY_OF_WEEK) != gridStart.firstDayOfWeek)
+        while (gridStart.get(Calendar.DAY_OF_WEEK) != store.weekStartResolved())
             gridStart.add(Calendar.DAY_OF_MONTH, -1)
 
         val today = Calendar.getInstance()
@@ -2086,7 +2131,7 @@ class BoardController(private val baseCtx: Context) {
         val c = Calendar.getInstance()
         c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0)
         c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
-        while (c.get(Calendar.DAY_OF_WEEK) != c.firstDayOfWeek) c.add(Calendar.DAY_OF_MONTH, -1)
+        while (c.get(Calendar.DAY_OF_WEEK) != store.weekStartResolved()) c.add(Calendar.DAY_OF_MONTH, -1)
         c.add(Calendar.DAY_OF_MONTH, weekOffset * 7)
         return c
     }
