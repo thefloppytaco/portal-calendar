@@ -668,6 +668,32 @@ async function saveSaver(){
   } catch(e){ msg(e.message, false); loadSaver(); }
 }
 
+async function loadFeatures(){
+  try {
+    const f = await (await fetch('/api/features')).json();
+    document.getElementById('featChores').checked = f.chores;
+    document.getElementById('featLists').checked = f.lists;
+    document.getElementById('featMeals').checked = f.meals;
+  } catch(e){ /* page still usable without it */ }
+}
+
+async function setFeatures(){
+  const body = {
+    chores: document.getElementById('featChores').checked,
+    lists: document.getElementById('featLists').checked,
+    meals: document.getElementById('featMeals').checked,
+  };
+  try {
+    const r = await fetch('/api/features', {method:'POST', body: JSON.stringify(body)});
+    const f = await r.json();
+    if (!r.ok) throw new Error(f.error || 'failed');
+    document.getElementById('featChores').checked = f.chores;
+    document.getElementById('featLists').checked = f.lists;
+    document.getElementById('featMeals').checked = f.meals;
+    show('featMsg', 'Board tabs updated', true);
+  } catch(e){ show('featMsg', e.message, false); loadFeatures(); }
+}
+
 async function loadEffects(){
   try {
     const st = await (await fetch('/api/effects')).json();
@@ -1805,7 +1831,7 @@ function showWizard(){
 async function exitWizard(){
   try { await fetch('/api/setup', {method:'POST', body:'{}'}); } catch(e){}
   document.getElementById('wizard').style.display = 'none';
-  load(); loadSaver(); loadEffects(); loadSync(); loadWriters(); loadScale(); loadWx(); loadPin();
+  load(); loadSaver(); loadEffects(); loadFeatures(); loadSync(); loadWriters(); loadScale(); loadWx(); loadPin();
 }
 
 async function maybeStartWizard(){
@@ -1967,6 +1993,7 @@ async function importConfig(){
 
 loadSaver();
 loadEffects();
+loadFeatures();
 loadSync();
 loadWriters();
 loadScale();
