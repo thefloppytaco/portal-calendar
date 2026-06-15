@@ -202,6 +202,7 @@ object Chores {
             }
             else -> throw IllegalArgumentException("unknown action")
         }
+        FamilySync.pushIfSpoke(ctx, "chores", action.toString())
         App.instance.notifyDataChanged()
         return statusJson(ctx)
     }

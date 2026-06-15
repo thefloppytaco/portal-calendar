@@ -131,6 +131,7 @@ class BoardController(private val baseCtx: Context) {
     private var addCalIndex = 0
     private var addBusy = false
     private lateinit var exitButton: TextView
+    private lateinit var celebration: CelebrationView
 
     // Voice (tap-to-talk natural-language commands via the user's Gemini key).
     private lateinit var micFab: TextView
@@ -487,7 +488,22 @@ class BoardController(private val baseCtx: Context) {
         })
         voiceOverlay = buildVoiceOverlay()
         root.addView(voiceOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        // Topmost, touch-transparent layer for chore-completion confetti.
+        celebration = CelebrationView(ctx)
+        root.addView(celebration, FrameLayout.LayoutParams(MATCH, MATCH))
         return root
+    }
+
+    /** Fire the celebration burst centered on a just-completed chore card. */
+    private fun celebrateAt(anchor: View, goalReached: Boolean) {
+        if (!store.choreEffects() || !::celebration.isInitialized) return
+        val a = IntArray(2); anchor.getLocationInWindow(a)
+        val c = IntArray(2); celebration.getLocationInWindow(c)
+        celebration.burst(
+            (a[0] - c[0] + anchor.width / 2).toFloat(),
+            (a[1] - c[1] + anchor.height / 2).toFloat(),
+            goalReached)
     }
 
     private fun buildVoiceOverlay(): FrameLayout {
@@ -1268,7 +1284,8 @@ class BoardController(private val baseCtx: Context) {
                         }
                     }
                 }
-            })
+            },
+            onCelebrate = { anchor, goalReached -> celebrateAt(anchor, goalReached) })
         area.addView(choresTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
         mealsTab = MealsTab(ctx, { title, body ->
             detailTitle.text = title

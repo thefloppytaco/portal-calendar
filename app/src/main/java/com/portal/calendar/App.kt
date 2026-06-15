@@ -63,6 +63,7 @@ class App : Application() {
             addAction(Intent.ACTION_SCREEN_OFF)
         })
         if (Screensaver.isEnabled(this)) KeepAliveService.start(this)
+        FamilySync.applyRole(this) // hub advertises / spoke discovers + polls
     }
 
     fun addConfigListener(l: () -> Unit) = configListeners.add(l)

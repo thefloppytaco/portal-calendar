@@ -17,6 +17,7 @@ object FamilyLists {
 
     fun mutate(ctx: Context, action: JSONObject): String {
         val out = Data.mutate(ctx, FILE) { arr -> apply(arr, action); arr.toString() }
+        FamilySync.pushIfSpoke(ctx, "lists", action.toString())
         App.instance.notifyDataChanged()
         App.instance.kickTasksSync()
         return out

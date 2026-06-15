@@ -9,6 +9,8 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.WindowManager
 import kotlin.math.abs
@@ -24,9 +26,34 @@ class MainActivity : Activity() {
     private var lastOrientation = Configuration.ORIENTATION_UNDEFINED
     private var lastNightMode = Configuration.UI_MODE_NIGHT_UNDEFINED
 
+    private val idleHandler = Handler(Looper.getMainLooper())
+    // YIELD mode: after this fires, drop keep-screen-on so the device idles into
+    // its own screensaver (Immortal's photo frame, or the Portal's stock dream).
+    private val yieldRunnable = Runnable {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    /**
+     * Re-assert the screen-on policy for the current idle mode. TAKEOVER/OFF
+     * hold the screen on while the board is up (unchanged behavior); YIELD holds
+     * it but arms a timer to release it after the configured idle period, so a
+     * touch keeps the board awake and inactivity lets the screensaver take over.
+     */
+    private fun armScreenPolicy() {
+        idleHandler.removeCallbacks(yieldRunnable)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (Screensaver.isYield(this))
+            idleHandler.postDelayed(yieldRunnable, Screensaver.yieldMinutes(this) * 60_000L)
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        if (Screensaver.isYield(this)) armScreenPolicy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        armScreenPolicy()
         // Surface over any lock layer when relaunched out of sleep by the takeover.
         setShowWhenLocked(true)
         setTurnScreenOn(true)
@@ -136,14 +163,17 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updateSensorListener()
+        armScreenPolicy() // re-arm after waking back from the screensaver
     }
 
     override fun onPause() {
         if (accelRegistered) { sensorMgr?.unregisterListener(orientListener); accelRegistered = false }
+        idleHandler.removeCallbacks(yieldRunnable)
         super.onPause()
     }
 
     override fun onDestroy() {
+        idleHandler.removeCallbacks(yieldRunnable)
         board.stop()
         super.onDestroy()
     }
@@ -156,7 +186,7 @@ class MainActivity : Activity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemUi()
+        if (hasFocus) { hideSystemUi(); armScreenPolicy() } // dream dismissed → board awake again
     }
 
     override fun onBackPressed() {

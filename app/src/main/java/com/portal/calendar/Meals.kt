@@ -67,6 +67,7 @@ object Meals {
             }
             else -> throw IllegalArgumentException("unknown action")
         }
+        FamilySync.pushIfSpoke(ctx, "meals", action.toString())
         App.instance.notifyDataChanged()
         return statusJson(ctx)
     }

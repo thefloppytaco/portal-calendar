@@ -109,6 +109,7 @@ object Members {
             while (current.length() > 0) current.remove(current.length() - 1)
             for (i in 0 until clean.length()) current.put(clean.get(i))
         }
+        FamilySync.pushIfSpoke(ctx, "members", json)
         App.instance.notifyDataChanged()
     }
 

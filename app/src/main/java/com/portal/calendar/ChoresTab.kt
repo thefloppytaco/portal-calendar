@@ -27,7 +27,9 @@ class ChoresTab(
     private val onAddChore: () -> Unit = {},
     private val onGate: (memberPin: String, memberName: String, action: () -> Unit) -> Unit =
         { _, _, action -> action() },
-    private val onRemoveChore: (id: String, label: String) -> Unit = { _, _ -> }
+    private val onRemoveChore: (id: String, label: String) -> Unit = { _, _ -> },
+    /** Fired when a card is *checked off* (not un-done); [goalReached] when this star hit the weekly goal. */
+    private val onCelebrate: (anchor: View, goalReached: Boolean) -> Unit = { _, _ -> }
 ) {
 
     private lateinit var columnsRow: LinearLayout
@@ -204,10 +206,14 @@ class ChoresTab(
                     card.animate().scaleX(0.93f).scaleY(0.93f).setDuration(80).withEndAction {
                         card.animate().scaleX(1f).scaleY(1f).setDuration(80).start()
                         onGate(member?.optString("pin") ?: "", name) {
-                            runCatching {
+                            val ok = runCatching {
                                 Chores.mutate(ctx, JSONObject()
                                     .put("action", "toggle").put("choreId", c.optString("id")))
-                            }
+                            }.isSuccess
+                            // Celebrate only when checking ON, and flag the moment
+                            // this star reaches the weekly goal for a bigger burst.
+                            if (ok && !done)
+                                onCelebrate(card, starCount < goal && starCount + 1 >= goal)
                         }
                     }.start()
                 }

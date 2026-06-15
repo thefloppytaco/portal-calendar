@@ -287,11 +287,60 @@
 
   <div class="card" data-tab="settings">
     <strong>Idle screen</strong>
-    <label class="switchrow" style="display:flex;align-items:center;gap:10px;margin-top:10px;font-size:15px;color:#333a45;">
-      <input type="checkbox" id="ssToggle" onchange="toggleSaver()" style="width:22px;height:22px;flex:none;">
-      Show the calendar when the Portal idles (instead of the photo screensaver)
+    <div style="font-size:13px;color:#737983;margin:6px 0 10px;">What the Portal does when no one's touched the board for a while.</div>
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;color:#333a45;margin-bottom:10px;">
+      <input type="radio" name="ssMode" value="takeover" onchange="saveSaver()" style="width:20px;height:20px;flex:none;margin-top:2px;">
+      <span>Keep showing the calendar<br><span style="font-size:13px;color:#8b949e;">Always-on display — the board never sleeps.</span></span>
     </label>
-    <div id="ssNote" style="color:#8b949e;font-size:13px;margin-top:8px;"></div>
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;color:#333a45;margin-bottom:10px;">
+      <input type="radio" name="ssMode" value="yield" onchange="saveSaver()" style="width:20px;height:20px;flex:none;margin-top:2px;">
+      <span>Let the screensaver run after
+        <input type="number" id="ssMins" min="1" max="120" onchange="saveSaver()" style="width:56px;padding:2px 6px;"> minutes
+        <br><span style="font-size:13px;color:#8b949e;">The Portal's screensaver (Immortal's, or its own) takes over when idle; tap to return. Gentler on the screen.</span></span>
+    </label>
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;color:#333a45;">
+      <input type="radio" name="ssMode" value="off" onchange="saveSaver()" style="width:20px;height:20px;flex:none;margin-top:2px;">
+      <span>Off<br><span style="font-size:13px;color:#8b949e;">Screensaver runs only once you exit the calendar.</span></span>
+    </label>
+    <div id="ssNote" style="color:#8b949e;font-size:13px;margin-top:10px;"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
+    <strong>Sync across Portals</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 10px;">Keep chores, stars, lists, meals and family members in step across every Portal in the house — over your Wi-Fi, no account needed. Pick one Portal as the hub; set the others to follow it.</div>
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;color:#333a45;margin-bottom:10px;">
+      <input type="radio" name="syncRole" value="solo" onchange="saveSync()" style="width:20px;height:20px;flex:none;margin-top:2px;">
+      <span>Solo<br><span style="font-size:13px;color:#8b949e;">This Portal stands alone (default).</span></span>
+    </label>
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;color:#333a45;margin-bottom:10px;">
+      <input type="radio" name="syncRole" value="hub" onchange="saveSync()" style="width:20px;height:20px;flex:none;margin-top:2px;">
+      <span>Hub<br><span style="font-size:13px;color:#8b949e;">The source of truth — other Portals follow this one.</span></span>
+    </label>
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;color:#333a45;">
+      <input type="radio" name="syncRole" value="spoke" onchange="saveSync()" style="width:20px;height:20px;flex:none;margin-top:2px;">
+      <span>Follow another Portal<br><span style="font-size:13px;color:#8b949e;">This Portal mirrors a hub on the network.</span></span>
+    </label>
+    <div id="syncSpokeBox" style="display:none;margin:12px 0 0 30px;">
+      <div id="syncDiscovered" style="font-size:13px;color:#737983;margin-bottom:6px;"></div>
+      <label style="font-size:13px;color:#737983;">Hub address (leave blank to auto-find)</label>
+      <input type="text" id="syncHub" placeholder="192.168.1.42" onchange="saveSync()" style="width:100%;">
+      <label style="display:flex;align-items:center;gap:10px;font-size:14px;margin-top:12px;">
+        <input type="checkbox" id="syncMirror" onchange="saveSync()" style="width:20px;height:20px;flex:none;">
+        Also mirror the hub's calendars &amp; settings
+      </label>
+      <div style="font-size:12px;color:#8b949e;margin-top:4px;">Off: this Portal keeps its own calendars, theme and layout — only the family data (chores, lists, meals, members) follows the hub. On: it becomes a full mirror of the hub.</div>
+    </div>
+    <div id="syncHubBox" style="display:none;font-size:13px;color:#737983;margin-top:8px;"></div>
+    <div id="syncMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
+    <strong>Chore celebrations</strong>
+    <label class="switchrow" style="display:flex;align-items:center;gap:10px;margin-top:10px;font-size:15px;color:#333a45;">
+      <input type="checkbox" id="fxToggle" onchange="toggleEffects()" style="width:22px;height:22px;flex:none;">
+      Play a burst of stars when a chore is checked off
+    </label>
+    <div style="color:#8b949e;font-size:13px;margin-top:8px;">An extra-big celebration plays when a kid reaches their weekly star goal.</div>
   </div>
 
   <div class="card" data-tab="settings">
@@ -590,17 +639,13 @@ async function syncNow(){
 }
 
 function applySaverStatus(st){
-  const t = document.getElementById('ssToggle');
-  const note = document.getElementById('ssNote');
-  t.checked = st.enabled;
-  t.disabled = !st.canWrite;
-  if (!st.canWrite) {
-    note.innerHTML = 'Needs a one-time permission. With the Portal plugged into a computer, run:<br><code>' + st.grantCmd + '</code>';
-  } else {
-    note.textContent = st.enabled
-      ? 'On — the calendar takes over when the Portal idles. Tap ✕ on the board to leave.'
-      : 'Off — the Portal uses its normal photo screensaver.';
-  }
+  document.querySelectorAll('input[name=ssMode]').forEach(r => r.checked = (r.value === st.mode));
+  const mins = document.getElementById('ssMins');
+  if (document.activeElement !== mins) mins.value = st.yieldMinutes; // don't fight the user typing
+  document.getElementById('ssNote').textContent =
+    st.mode === 'takeover' ? 'The calendar stays up when idle. Tap ✕ on the board to leave.' :
+    st.mode === 'yield' ? 'After about ' + st.yieldMinutes + ' min untouched, the screensaver takes over; tap to bring the calendar back.' :
+    'The screensaver runs only when the calendar is closed.';
 }
 
 async function loadSaver(){
@@ -608,16 +653,81 @@ async function loadSaver(){
   catch(e){ /* page still usable without it */ }
 }
 
-async function toggleSaver(){
-  const t = document.getElementById('ssToggle');
+async function saveSaver(){
+  const mode = document.querySelector('input[name=ssMode]:checked');
+  const mins = parseInt(document.getElementById('ssMins').value, 10);
+  const body = {};
+  if (mode) body.mode = mode.value;
+  if (!isNaN(mins)) body.yieldMinutes = mins;
   try {
-    const r = await fetch('/api/screensaver', {method:'POST', body: JSON.stringify({enabled: t.checked})});
+    const r = await fetch('/api/screensaver', {method:'POST', body: JSON.stringify(body)});
+    const st = await r.json();
+    if (!r.ok) throw new Error(st.error || 'failed');
+    applySaverStatus(st);
+    msg('Idle screen updated', true);
+  } catch(e){ msg(e.message, false); loadSaver(); }
+}
+
+async function loadEffects(){
+  try {
+    const st = await (await fetch('/api/effects')).json();
+    document.getElementById('fxToggle').checked = st.enabled;
+  } catch(e){ /* page still usable without it */ }
+}
+
+async function toggleEffects(){
+  const t = document.getElementById('fxToggle');
+  try {
+    const r = await fetch('/api/effects', {method:'POST', body: JSON.stringify({enabled: t.checked})});
     const body = await r.json();
     if (!r.ok) throw new Error(body.error || 'failed');
-    applySaverStatus(body);
-    msg(t.checked ? 'Calendar is now the idle screen' : 'Photo screensaver restored', true);
+    msg(t.checked ? 'Celebrations on' : 'Celebrations off', true);
   } catch(e){ t.checked = !t.checked; msg(e.message, false); }
 }
+
+function applySync(st){
+  document.querySelectorAll('input[name=syncRole]').forEach(r => r.checked = (r.value === st.role));
+  const hub = document.getElementById('syncHub');
+  if (document.activeElement !== hub) hub.value = st.manualHub || '';
+  document.getElementById('syncMirror').checked = st.mirrorAll;
+  document.getElementById('syncSpokeBox').style.display = st.role === 'spoke' ? 'block' : 'none';
+  const hubBox = document.getElementById('syncHubBox');
+  if (st.role === 'hub') {
+    hubBox.style.display = 'block';
+    hubBox.textContent = 'Other Portals find this hub automatically. Its address is ' + st.myAddress + '.';
+  } else { hubBox.style.display = 'none'; }
+  if (st.role === 'spoke') {
+    const d = document.getElementById('syncDiscovered');
+    if (st.hubUrl) d.textContent = '✓ Following ' + st.hubUrl;
+    else if (st.discovered && st.discovered.length) d.textContent = 'Found on the network: ' + st.discovered.join(', ');
+    else d.textContent = 'Searching for a hub on the network…';
+  }
+}
+
+async function loadSync(){
+  try { applySync(await (await fetch('/api/familysync')).json()); }
+  catch(e){ /* page still usable without it */ }
+}
+
+async function saveSync(){
+  const role = document.querySelector('input[name=syncRole]:checked');
+  const body = { manualHub: document.getElementById('syncHub').value,
+                 mirrorAll: document.getElementById('syncMirror').checked };
+  if (role) body.role = role.value;
+  try {
+    const r = await fetch('/api/familysync', {method:'POST', body: JSON.stringify(body)});
+    const st = await r.json();
+    if (!r.ok) throw new Error(st.error || 'failed');
+    applySync(st);
+    msg('Sync settings saved', true);
+  } catch(e){ msg(e.message, false); loadSync(); }
+}
+
+// While following a hub, refresh discovery/connection status periodically.
+setInterval(() => {
+  const r = document.querySelector('input[name=syncRole]:checked');
+  if (r && r.value === 'spoke') loadSync();
+}, 5000);
 
 let writers = {calendars:[]};
 
@@ -1390,7 +1500,8 @@ const WIZ_STEPS = [
           <li>Who's in the family (names &amp; colors)</li>
           <li>The calendars to show</li>
           <li>Adding events from the Portal (optional)</li>
-          <li>Weather, screensaver and display size</li>
+          <li>Weather, the look &amp; the idle screen</li>
+          <li>Syncing extra Portals, if you have more than one</li>
         </ol>
       </div>`,
     next: 'Get started' },
@@ -1477,7 +1588,9 @@ const WIZ_STEPS = [
         shows each kid's column. They tap a card when it's done and earn a star toward their
         weekly goal. Add chores with the <strong>+ Add</strong> button on the board (it has a
         bank of ready-made ones, repeating or one-time, for one kid or several) or from the
-        Chores tab here. Long-press a card on the board to remove it.</div>
+        Chores tab here. Long-press a card on the board to remove it. Every check-off
+        sets off a little burst of stars — with a bigger celebration when a kid hits
+        their weekly goal (turn it off in Settings if it's too much).</div>
       </div>
       <div class="card">
         <strong>Lists &amp; meals</strong>
@@ -1523,15 +1636,37 @@ const WIZ_STEPS = [
       return true;
     } },
 
-  { kicker: 'STEP 7 · THE SCREEN', title: 'Make it an always-on display',
+  { kicker: 'STEP 7 · DISPLAY', title: 'Make it yours',
     body: () => `
-      <div class="wiz-sub">With this on, the calendar takes over whenever the Portal idles —
-      a true wall calendar. Tap ✕ on the board any time to get back to the launcher.</div>
       <div class="card">
-        <label style="display:flex;align-items:center;gap:10px;font-size:15px;">
-          <input type="checkbox" id="wizSaver" style="width:22px;height:22px;flex:none;" checked>
-          Show the calendar whenever the Portal is idle
+        <strong>When the Portal is idle</strong>
+        <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;margin-top:10px;">
+          <input type="radio" name="wizIdle" value="takeover" style="width:20px;height:20px;flex:none;margin-top:2px;">
+          <span>Keep showing the calendar<br><span style="font-size:13px;color:#8b949e;">A true always-on wall display. Tap ✕ to leave.</span></span>
         </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;margin-top:10px;">
+          <input type="radio" name="wizIdle" value="yield" style="width:20px;height:20px;flex:none;margin-top:2px;">
+          <span>Let the screensaver run after
+            <input type="number" id="wizIdleMins" min="1" max="120" value="10" style="width:52px;padding:2px 6px;"> min
+            <br><span style="font-size:13px;color:#8b949e;">Gentler on the screen; tap to return to the board.</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;margin-top:10px;">
+          <input type="radio" name="wizIdle" value="off" style="width:20px;height:20px;flex:none;margin-top:2px;">
+          <span>Off<br><span style="font-size:13px;color:#8b949e;">Screensaver only once you exit the calendar.</span></span>
+        </label>
+      </div>
+      <div class="card">
+        <strong>Theme &amp; orientation</strong>
+        <div class="row2" style="margin-top:10px;"><label>Theme</label>
+          <select id="wizTheme">
+            <option value="light">Light</option><option value="dark">Dark</option>
+            <option value="auto">Auto (dark at night)</option><option value="system">Match system</option>
+          </select></div>
+        <div class="row2" style="margin-top:8px;"><label>Layout</label>
+          <select id="wizOrient">
+            <option value="landscape">Landscape</option><option value="portrait">Portrait (day-per-row)</option>
+            <option value="auto">Auto-rotate</option>
+          </select></div>
       </div>
       <div class="card">
         <strong>Display size <span id="wizScaleVal" style="color:#f0584c;"></span></strong>
@@ -1553,13 +1688,61 @@ const WIZ_STEPS = [
         slider.addEventListener('change', () =>
           fetch('/api/scale', {method:'POST', body: JSON.stringify({scale: slider.value/100})}));
         const sv = await (await fetch('/api/screensaver')).json();
-        document.getElementById('wizSaver').checked = sv.enabled;
+        document.querySelectorAll('input[name=wizIdle]').forEach(r => r.checked = (r.value === sv.mode));
+        document.getElementById('wizIdleMins').value = sv.yieldMinutes;
+        const ly = await (await fetch('/api/layout')).json();
+        document.getElementById('wizTheme').value = ly.theme;
+        document.getElementById('wizOrient').value = ly.orientation;
       } catch(e){}
     },
     onNext: async () => {
       try {
-        await fetch('/api/screensaver', {method:'POST',
-          body: JSON.stringify({enabled: document.getElementById('wizSaver').checked})});
+        const mode = document.querySelector('input[name=wizIdle]:checked');
+        const mins = parseInt(document.getElementById('wizIdleMins').value, 10);
+        await fetch('/api/screensaver', {method:'POST', body: JSON.stringify({
+          mode: mode ? mode.value : 'off',
+          yieldMinutes: isNaN(mins) ? 10 : mins })});
+        await fetch('/api/layout', {method:'POST', body: JSON.stringify({
+          theme: document.getElementById('wizTheme').value,
+          orientation: document.getElementById('wizOrient').value })});
+      } catch(e){}
+      return true;
+    } },
+
+  { kicker: 'STEP 8 · MORE PORTALS', title: 'Got more than one Portal?',
+    body: () => `
+      <div class="wiz-sub">Skip this if you only have one. With several Portals running
+      PortalHub, keep their chores, stars, lists, meals and family members in step —
+      over your Wi-Fi, no account needed. Pick one as the hub; set the others to follow it.</div>
+      <div class="card">
+        <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;">
+          <input type="radio" name="wizSync" value="solo" style="width:20px;height:20px;flex:none;margin-top:2px;" checked>
+          <span>Just this one<br><span style="font-size:13px;color:#8b949e;">No syncing (default).</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;margin-top:10px;">
+          <input type="radio" name="wizSync" value="hub" style="width:20px;height:20px;flex:none;margin-top:2px;">
+          <span>This is the main one (hub)<br><span style="font-size:13px;color:#8b949e;">The others will follow it.</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;margin-top:10px;">
+          <input type="radio" name="wizSync" value="spoke" style="width:20px;height:20px;flex:none;margin-top:2px;">
+          <span>Follow another Portal<br><span style="font-size:13px;color:#8b949e;">Finds the hub automatically; or type its address below.</span></span>
+        </label>
+        <input type="text" id="wizSyncHub" placeholder="Hub address (optional, e.g. 192.168.1.42)"
+               autocomplete="off" style="margin-top:10px;">
+      </div>`,
+    onShow: async () => {
+      try {
+        const st = await (await fetch('/api/familysync')).json();
+        document.querySelectorAll('input[name=wizSync]').forEach(r => r.checked = (r.value === st.role));
+        document.getElementById('wizSyncHub').value = st.manualHub || '';
+      } catch(e){}
+    },
+    onNext: async () => {
+      try {
+        const role = document.querySelector('input[name=wizSync]:checked');
+        await fetch('/api/familysync', {method:'POST', body: JSON.stringify({
+          role: role ? role.value : 'solo',
+          manualHub: document.getElementById('wizSyncHub').value })});
       } catch(e){}
       return true;
     } },
@@ -1622,7 +1805,7 @@ function showWizard(){
 async function exitWizard(){
   try { await fetch('/api/setup', {method:'POST', body:'{}'}); } catch(e){}
   document.getElementById('wizard').style.display = 'none';
-  load(); loadSaver(); loadWriters(); loadScale(); loadWx(); loadPin();
+  load(); loadSaver(); loadEffects(); loadSync(); loadWriters(); loadScale(); loadWx(); loadPin();
 }
 
 async function maybeStartWizard(){
@@ -1783,6 +1966,8 @@ async function importConfig(){
 }
 
 loadSaver();
+loadEffects();
+loadSync();
 loadWriters();
 loadScale();
 loadWx();

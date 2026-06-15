@@ -68,6 +68,13 @@ class ConfigStore(ctx: Context) {
         prefs.edit().putBoolean("feature_$key", on).commit()
     }
 
+    /** Celebration animations when a chore is checked off (on by default). */
+    fun choreEffects(): Boolean = prefs.getBoolean("chore_effects", true)
+
+    fun setChoreEffects(on: Boolean) {
+        prefs.edit().putBoolean("chore_effects", on).commit()
+    }
+
     /** Kid-lock PIN; empty = lock disabled. Gates edits on the board only. */
     fun pin(): String = prefs.getString("kid_pin", "") ?: ""
 

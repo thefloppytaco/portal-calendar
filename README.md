@@ -8,7 +8,8 @@ Turn a discontinued **Meta Portal+ (gen 1)** into an always-on family hub — a 
 display that syncs everyone's Google and Apple calendars, runs chore charts with star
 rewards, keeps shared lists and a meal plan, takes voice commands, and (optionally)
 gets AI superpowers. Think commercial family-display subscription, built from a $30
-secondhand Portal, running entirely on your LAN.
+secondhand Portal, running entirely on your LAN. Got more than one? They keep each
+other in step over Wi-Fi — no account, no cloud.
 
 > Formerly "Family Calendar" — the app now shows as **PortalHub** on the device.
 > The package, repo and install links are unchanged, so existing installs keep updating.
@@ -53,6 +54,8 @@ secondhand Portal, running entirely on your LAN.
 - Add chores on the board (`+ Add`, with a quick-pick bank that **learns your
   family's frequent chores**) or on the page; long-press a card to remove one.
 - Optional **per-kid PIN**: only that kid — or a parent — can check off their chores.
+- **Celebrations** — every check-off pops a burst of stars/confetti from the card,
+  with a bigger payoff when a kid reaches their weekly goal. Toggle it off in Settings.
 
 ### 📝 Lists, meals & magic words
 - **Shared lists** (groceries, to-dos, packing) editable on the board and from any
@@ -85,9 +88,25 @@ model picker is populated from it, and calls auto-fall-back if a model is retire
 - **AI recipes** for the recipe box, and **smarter inbox parsing** (free phrasing,
   typo cleanup) with the rule-based parser as automatic fallback.
 
+### 🔄 Sync across Portals (hub-and-spoke)
+Got a Portal in the kitchen *and* one in the hallway? Keep them in step with no server
+and no account — just your Wi-Fi.
+- Pick one Portal as the **hub** (the source of truth); set the others to **follow** it.
+- Followers **find the hub automatically** on the network (mDNS), or you can type its
+  IP. Chores, stars, lists, meals and family members stay synced: check a chore off in
+  the kitchen and it's done in the hallway too.
+- The hub stays authoritative, so there's nothing to merge or conflict — a follower
+  applies your tap instantly and reconciles with the hub a moment later.
+- By default followers keep **their own** calendars, theme and layout (a kitchen
+  board and a kid's-room board can look different) — or flip on **mirror everything**
+  to make a follower a full clone of the hub, calendars and all.
+
 ### 🛡 Family-proofing
 - **Kid lock** — an optional 4-digit PIN gates adding, Settings, and deletions on
   the touchscreen, while chore and list check-offs stay kid-friendly.
+- **Idle screen, your call** — keep the calendar up as a true always-on display,
+  **or** let it hand off to the Portal's screensaver after a few idle minutes (gentler
+  on the panel; a tap brings the board right back), or leave it off entirely.
 - **Backup & clone** — export the whole setup (calendars, members, chores/lists/meals,
   layout, *and* your connected accounts + AI key) as one code and paste it into another
   Portal to clone it. The code holds credentials, so keep it private.
@@ -132,8 +151,9 @@ and re-run after restarts).
 
 **That's the whole computer part.** The board shows a QR code; scan it and the
 **setup wizard** walks you through family members, calendars, two-way sync, weather,
-the always-on screen and display size — every step skippable, everything changeable
-later. Add the page to your phone's home screen and it opens like an app.
+the look (theme, layout, idle screen, size) and — if you have more than one — syncing
+your Portals together. Every step is skippable and everything's changeable later. Add
+the page to your phone's home screen and it opens like an app.
 
 ## Building from source
 
@@ -164,10 +184,17 @@ bootloader. The design works within that:
   sleeps directly. So the app listens for dream/screen-off broadcasts, wakes the
   device with an `ACQUIRE_CAUSES_WAKEUP` wakelock, relaunches the board in a timed
   salvo — and, with the optional usage-stats grant, a 30-second guard reclaims the
-  screen from the stock photo frame no matter what path it snuck in through.
+  screen from the stock photo frame no matter what path it snuck in through. The
+  gentler **yield** mode does the opposite: it simply drops the keep-screen-on hold
+  after an idle timer so the device falls into its own screensaver, and re-arms on
+  the next touch.
 - **The setup page** is served from the Portal itself (NanoHTTPD on `:8090`) as an
   installable PWA. No cloud, no accounts; nothing leaves your LAN except the feed
   fetches and the APIs you explicitly connect.
+- **Multi-Portal sync** needs no server: the hub advertises itself over mDNS
+  (`NsdManager`) and serves the shared family files through the same `:8090` HTTP
+  endpoint; followers discover it, poll it, and write their edits back to it — so the
+  hub is the single source of truth and there's no conflict resolution to get wrong.
 
 ## Privacy & security
 

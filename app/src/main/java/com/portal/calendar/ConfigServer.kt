@@ -272,11 +272,35 @@ class ConfigServer(
             App.instance.onMain { App.instance.activeBoard?.previewScale(v) }
             json("{\"ok\":true}")
         }
+        // ---- Hub-and-spoke family sync ----
+        s.uri == "/api/familysync" && s.method == Method.GET ->
+            json(FamilySync.statusJson(ctx))
+        s.uri == "/api/familysync" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            FamilySync.setConfig(ctx,
+                if (o.has("role")) o.getString("role") else null,
+                if (o.has("manualHub")) o.getString("manualHub") else null,
+                if (o.has("mirrorAll")) o.getBoolean("mirrorAll") else null)
+            json(FamilySync.statusJson(ctx))
+        }
+        // Served by a hub to its spokes: raw shared family files (no secrets).
+        s.uri == "/api/family" && s.method == Method.GET ->
+            json(FamilySync.snapshotJson(ctx))
+        // Mirror-all: the hub's whole config bundle (includes feeds + credentials).
+        s.uri == "/api/family/full" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "text/plain", ConfigBundle.export(ctx))
+        s.uri == "/api/effects" && s.method == Method.GET ->
+            json("{\"enabled\":${store.choreEffects()}}")
+        s.uri == "/api/effects" && s.method == Method.POST -> {
+            store.setChoreEffects(org.json.JSONObject(readBody(s)).getBoolean("enabled"))
+            json("{\"enabled\":${store.choreEffects()}}")
+        }
         s.uri == "/api/screensaver" && s.method == Method.GET ->
             json(Screensaver.statusJson(ctx))
         s.uri == "/api/screensaver" && s.method == Method.POST -> {
-            val enabled = org.json.JSONObject(readBody(s)).getBoolean("enabled")
-            Screensaver.set(ctx, enabled)
+            val o = org.json.JSONObject(readBody(s))
+            if (o.has("mode")) Screensaver.setMode(ctx, o.getString("mode"))
+            if (o.has("yieldMinutes")) Screensaver.setYieldMinutes(ctx, o.getInt("yieldMinutes"))
             json(Screensaver.statusJson(ctx))
         }
         else -> newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found")
