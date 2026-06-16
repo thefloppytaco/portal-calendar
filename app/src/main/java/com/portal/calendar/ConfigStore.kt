@@ -61,8 +61,12 @@ class ConfigStore(ctx: Context) {
         prefs.edit().putBoolean("wizard_done", true).commit()
     }
 
-    /** Board tab visibility: "chores" / "lists" / "meals", all on by default. */
-    fun featureEnabled(key: String): Boolean = prefs.getBoolean("feature_$key", true)
+    /**
+     * Board tab visibility: "chores" / "lists" / "meals" default on; "routines"
+     * is opt-in (default false) so it stays hidden until a family turns it on.
+     */
+    fun featureEnabled(key: String, default: Boolean = true): Boolean =
+        prefs.getBoolean("feature_$key", default)
 
     fun setFeature(key: String, on: Boolean) {
         prefs.edit().putBoolean("feature_$key", on).commit()

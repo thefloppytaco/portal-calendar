@@ -84,6 +84,10 @@ class ConfigServer(
             json(Chores.statusJson(ctx))
         s.uri == "/api/chores" && s.method == Method.POST ->
             json(Chores.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/routines" && s.method == Method.GET ->
+            json(Routines.statusJson(ctx))
+        s.uri == "/api/routines" && s.method == Method.POST ->
+            json(Routines.mutate(ctx, org.json.JSONObject(readBody(s))))
         s.uri == "/api/meals" && s.method == Method.GET ->
             json(Meals.statusJson(ctx))
         s.uri == "/api/meals" && s.method == Method.POST ->
@@ -122,19 +126,13 @@ class ConfigServer(
             json("{\"fresh\":false}")
         }
         s.uri == "/api/features" && s.method == Method.GET ->
-            json(org.json.JSONObject()
-                .put("chores", store.featureEnabled("chores"))
-                .put("lists", store.featureEnabled("lists"))
-                .put("meals", store.featureEnabled("meals")).toString())
+            json(featuresJson())
         s.uri == "/api/features" && s.method == Method.POST -> {
             val o = org.json.JSONObject(readBody(s))
-            for (key in listOf("chores", "lists", "meals"))
+            for (key in listOf("chores", "lists", "meals", "routines"))
                 if (o.has(key)) store.setFeature(key, o.getBoolean(key))
             App.instance.notifyDataChanged()
-            json(org.json.JSONObject()
-                .put("chores", store.featureEnabled("chores"))
-                .put("lists", store.featureEnabled("lists"))
-                .put("meals", store.featureEnabled("meals")).toString())
+            json(featuresJson())
         }
         s.uri == "/api/pin" && s.method == Method.GET ->
             json("{\"enabled\":${store.pin().isNotEmpty()}}")
@@ -330,6 +328,14 @@ class ConfigServer(
         }
         return String(buf, 0, read, Charsets.UTF_8)
     }
+
+    // "routines" defaults off (opt-in tab); the rest default on.
+    private fun featuresJson(): String = org.json.JSONObject()
+        .put("chores", store.featureEnabled("chores"))
+        .put("lists", store.featureEnabled("lists"))
+        .put("meals", store.featureEnabled("meals"))
+        .put("routines", store.featureEnabled("routines", default = false))
+        .toString()
 
     private fun json(body: String) =
         newFixedLengthResponse(Response.Status.OK, "application/json", body)

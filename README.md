@@ -57,6 +57,17 @@ other in step over Wi-Fi — no account, no cloud.
 - **Celebrations** — every check-off pops a burst of stars/confetti from the card,
   with a bigger payoff when a kid reaches their weekly goal. Toggle it off in Settings.
 
+### ✅ Routines (optional)
+- A separate **Routines** tab for kids' get-ready checklists — pack homework, pack
+  lunch, brush teeth, shoes on — grouped by time of day (**morning / afternoon /
+  evening / anytime**) so a column reads like a real morning list.
+- Works just like chores (per-member or several at once, repeating weekdays or
+  one-time, add on the board or the page, long-press to remove) — but with no stars:
+  each member's header shows a simple **done-so-far progress bar**, and everything
+  resets the next morning. Finishing the list is the point.
+- **Off by default.** The tab only appears once you switch Routines on (setup wizard
+  or Settings → Board tabs), so families who don't want it never see it.
+
 ### 📝 Lists, meals & magic words
 - **Shared lists** (groceries, to-dos, packing) editable on the board and from any
   phone on the Wi-Fi; link any list **two-way with Google Tasks** to use it away
@@ -110,7 +121,11 @@ and no account — just your Wi-Fi.
 - **Backup & clone** — export the whole setup (calendars, members, chores/lists/meals,
   layout, *and* your connected accounts + AI key) as one code and paste it into another
   Portal to clone it. The code holds credentials, so keep it private.
-- **Feature toggles** — hide the Chores, Lists or Meals tabs entirely.
+- **Feature toggles** — show or hide each board tab (Chores, Lists, Meals, and the
+  opt-in Routines) independently, so the board only carries what your family uses.
+- **Remote-friendly (Portal TV)** — navigating with a remote instead of the
+  touchscreen? A clear accent **focus outline** follows the selected button as you
+  move around. It appears only in remote/D-pad use, so touchscreen Portals never see it.
 - **Display size** — a live slider (70–160%) zooms the whole UI; drag on your phone
   and watch the board resize (10″ Portals like ~110–125%).
 - **Guided setup wizard** — scan a fresh Portal's QR and a skippable wizard walks

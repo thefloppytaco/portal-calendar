@@ -25,7 +25,7 @@ object ConfigBundle {
     private val DATA_FILES = listOf(
         "members.json", "lists.json", "chores.json", "chore_done.json",
         "star_goals.json", "chore_history.json", "mealplan.json",
-        "recipes.json", "magic_done.json")
+        "recipes.json", "magic_done.json", "routines.json", "routine_done.json")
 
     fun export(ctx: Context): String {
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

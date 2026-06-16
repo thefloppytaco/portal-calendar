@@ -46,7 +46,8 @@ object FamilySync {
      */
     private val SHARED_FILES = listOf(
         "members.json", "lists.json", "chores.json", "chore_done.json",
-        "star_goals.json", "chore_history.json", "mealplan.json", "recipes.json")
+        "star_goals.json", "chore_history.json", "mealplan.json", "recipes.json",
+        "routines.json", "routine_done.json")
 
     /** Prefs that must survive a full-mirror import — sync identity + this device's physical traits. */
     private val LOCAL_PREFS = setOf(

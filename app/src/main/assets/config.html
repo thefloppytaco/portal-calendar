@@ -107,6 +107,7 @@
   <div id="tabbar" style="display:flex;gap:8px;margin-bottom:16px;">
     <button data-tabbtn="calendar" onclick="showTab('calendar')" style="flex:1;">Calendar</button>
     <button data-tabbtn="chores" class="ghost" onclick="showTab('chores')" style="flex:1;">Chores</button>
+    <button data-tabbtn="routines" class="ghost" onclick="showTab('routines')" style="flex:1;">Routines</button>
     <button data-tabbtn="lists" class="ghost" onclick="showTab('lists')" style="flex:1;">Lists</button>
     <button data-tabbtn="meals" class="ghost" onclick="showTab('meals')" style="flex:1;">Meals</button>
     <button data-tabbtn="family" class="ghost" onclick="showTab('family')" style="flex:1;">Family</button>
@@ -144,6 +145,42 @@
       <button style="width:100%;" onclick="addChore()">Add chore</button>
     </div>
     <div id="choreMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="routines">
+    <strong>Routines</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 10px;">Get-ready checklists for the kids — pack homework, lunch, brush teeth. They tick each one off on the board; everything resets the next morning. No stars, just a tidy list. Turn the board tab on under <strong>Settings → Board tabs</strong>.</div>
+    <div id="routineBox" style="margin-top:8px;"></div>
+    <div style="border-top:1px solid #efece4;margin-top:14px;padding-top:12px;">
+      <strong style="font-size:14px;">Add an item</strong>
+      <div id="routineBank" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
+      <div class="row2" style="margin-top:8px;">
+        <select id="rtIcon" style="margin:0;flex:none;width:84px;">
+          <option>✅</option><option>🎒</option><option>📚</option><option>🥪</option>
+          <option>💧</option><option>👟</option><option>🧥</option><option>🦷</option>
+          <option>🛏️</option><option>👕</option><option>🍎</option><option>🌙</option>
+        </select>
+        <input type="text" id="rtTitle" placeholder="e.g. Pack homework" autocomplete="off" style="margin:0;">
+      </div>
+      <div id="rtMembers" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;"></div>
+      <div class="row2">
+        <label style="flex:none;">When</label>
+        <select id="rtSection" style="margin:0;">
+          <option value="morning">☀️ Morning</option>
+          <option value="afternoon">🌤️ Afternoon</option>
+          <option value="evening">🌙 Evening</option>
+          <option value="anytime">🔁 Anytime</option>
+        </select>
+        <select id="rtMode" style="margin:0;" onchange="renderRoutineSchedule()">
+          <option value="repeat">Repeats</option>
+          <option value="once">One time</option>
+        </select>
+      </div>
+      <div id="rtDays" style="display:flex;gap:6px;margin:6px 0 12px;"></div>
+      <input type="date" id="rtDate" style="display:none;">
+      <button style="width:100%;" onclick="addRoutine()">Add item</button>
+    </div>
+    <div id="routineMsg" class="msgline"></div>
   </div>
 
   <div class="card" data-tab="lists">
@@ -370,6 +407,7 @@
       <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featChores" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Chores &amp; stars</label>
       <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featLists" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Lists</label>
       <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featMeals" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Meals</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:15px;"><input type="checkbox" id="featRoutines" onchange="setFeatures()" style="width:20px;height:20px;flex:none;"> Routines <span style="font-size:12px;color:#737983;">(kids' get-ready checklists)</span></label>
     </div>
     <div id="featMsg" class="msgline"></div>
   </div>
@@ -674,6 +712,7 @@ async function loadFeatures(){
     document.getElementById('featChores').checked = f.chores;
     document.getElementById('featLists').checked = f.lists;
     document.getElementById('featMeals').checked = f.meals;
+    document.getElementById('featRoutines').checked = f.routines;
   } catch(e){ /* page still usable without it */ }
 }
 
@@ -682,6 +721,7 @@ async function setFeatures(){
     chores: document.getElementById('featChores').checked,
     lists: document.getElementById('featLists').checked,
     meals: document.getElementById('featMeals').checked,
+    routines: document.getElementById('featRoutines').checked,
   };
   try {
     const r = await fetch('/api/features', {method:'POST', body: JSON.stringify(body)});
@@ -690,6 +730,7 @@ async function setFeatures(){
     document.getElementById('featChores').checked = f.chores;
     document.getElementById('featLists').checked = f.lists;
     document.getElementById('featMeals').checked = f.meals;
+    document.getElementById('featRoutines').checked = f.routines;
     show('featMsg', 'Board tabs updated', true);
   } catch(e){ show('featMsg', e.message, false); loadFeatures(); }
 }
@@ -924,6 +965,7 @@ function showTab(name){
   if (name === 'lists') loadListsP();
   if (name === 'family') loadMembers();
   if (name === 'chores') loadChores();
+  if (name === 'routines') loadRoutines();
   if (name === 'meals') loadMeals();
 }
 
@@ -1145,6 +1187,125 @@ function addChore(){
   choreAct(action);
   document.getElementById('chTitle').value = '';
   show('choreMsg', '✓ Added', true);
+}
+
+// ----- routines (kids' get-ready checklists) -----
+let routineStatus = null;
+let routineDays = [2,3,4,5,6]; // default school days
+let routineSelMembers = [];
+const ROUTINE_BANK = [
+  ['🎒','Pack the backpack'],['📚','Pack homework'],['🥪','Pack lunch'],
+  ['💧','Fill water bottle'],['👟','Shoes on'],['🧥','Grab a coat'],
+  ['🦷','Brush teeth'],['🛏️','Make the bed'],['👕','Get dressed'],
+  ['🍎','Eat breakfast'],['📱','Charge devices'],['🌙','Pajamas on']];
+const SECTION_ICON = {morning:'☀️', afternoon:'🌤️', evening:'🌙', anytime:'🔁'};
+
+function renderRoutineBank(){
+  document.getElementById('routineBank').innerHTML = ROUTINE_BANK.map(([icon, title]) =>
+    `<button class="ghost" style="padding:8px 12px;font-size:13px;"
+             onclick="pickRoutineBank('${icon}', ${JSON.stringify(title)})">${icon} ${esc(title)}</button>`).join('');
+}
+function pickRoutineBank(icon, title){
+  document.getElementById('rtIcon').value = icon;
+  document.getElementById('rtTitle').value = title;
+}
+
+function renderRoutineSchedule(){
+  const once = document.getElementById('rtMode').value === 'once';
+  document.getElementById('rtDays').style.display = once ? 'none' : 'flex';
+  const d = document.getElementById('rtDate');
+  d.style.display = once ? '' : 'none';
+  if (once && !d.value) {
+    const now = new Date();
+    d.value = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  }
+}
+
+function renderRoutineDayChips(){
+  document.getElementById('rtDays').innerHTML = DOW.map(d =>
+    `<button class="${routineDays.includes(d.v) ? '' : 'ghost'}" style="flex:1;padding:8px 0;"
+             onclick="toggleRoutineDay(${d.v})">${d.n}</button>`).join('');
+}
+function toggleRoutineDay(v){
+  routineDays = routineDays.includes(v) ? routineDays.filter(x => x !== v) : [...routineDays, v];
+  renderRoutineDayChips();
+}
+
+function routineMemberName(id){
+  const m = (routineStatus?.members || []).find(m => m.id === id);
+  return m ? m.name : 'Anyone';
+}
+
+function renderRoutines(){
+  const st = routineStatus;
+  const dayNames = ['','Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  document.getElementById('routineBox').innerHTML = (st.items || []).map(c => {
+    const days = c.oneTime ? ('One time · ' + (c.date || ''))
+      : (c.days || []).length === 7 ? 'Every day'
+      : (c.days || []).map(d => dayNames[d]).join(' ');
+    const sec = SECTION_ICON[c.section || 'morning'] || '';
+    return `<div class="cal-row">
+      <span style="font-size:20px;">${esc(c.icon || '✅')}</span>
+      <div class="grow">
+        <div class="cal-name">${esc(c.title)}</div>
+        <div class="cal-url">${sec} ${esc(routineMemberName(c.memberId))} · ${esc(days)}</div>
+      </div>
+      <button class="del" onclick="routineAct({action:'deleteItem',itemId:'${esc(c.id)}'})">✕</button>
+    </div>`;
+  }).join('') || '<div class="empty">No routine items yet</div>';
+
+  if (!routineSelMembers.length && st.members && st.members.length)
+    routineSelMembers = [st.members[0].id];
+  document.getElementById('rtMembers').innerHTML = (st.members || []).map(m => {
+    const on = routineSelMembers.includes(m.id);
+    return `<button class="${on ? '' : 'ghost'}" style="padding:8px 14px;${on ? 'background:' + esc(m.color) + ';' : ''}"
+      onclick="toggleRoutineMember('${esc(m.id)}')">${esc(m.name)}</button>`;
+  }).join('') || '<div class="empty" style="font-size:13px;">Add family members first (Family tab)</div>';
+}
+
+function toggleRoutineMember(id){
+  routineSelMembers = routineSelMembers.includes(id)
+    ? routineSelMembers.filter(x => x !== id) : [...routineSelMembers, id];
+  renderRoutines();
+}
+
+async function loadRoutines(){
+  try {
+    routineStatus = await (await fetch('/api/routines')).json();
+    renderRoutines(); renderRoutineDayChips(); renderRoutineBank(); renderRoutineSchedule();
+  }
+  catch(e){ show('routineMsg', e.message, false); }
+}
+
+async function routineAct(action){
+  try {
+    const r = await fetch('/api/routines', {method:'POST', body: JSON.stringify(action)});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    routineStatus = body; renderRoutines();
+  } catch(e){ show('routineMsg', e.message, false); }
+}
+
+function addRoutine(){
+  const title = document.getElementById('rtTitle').value.trim();
+  if (!title) return show('routineMsg', 'Give the item a name', false);
+  if (!routineSelMembers.length) return show('routineMsg', 'Pick at least one person', false);
+  const once = document.getElementById('rtMode').value === 'once';
+  const action = {action:'addItem', title,
+    icon: document.getElementById('rtIcon').value,
+    section: document.getElementById('rtSection').value,
+    memberIds: routineSelMembers};
+  if (once) {
+    action.oneTime = true;
+    action.date = document.getElementById('rtDate').value;
+    if (!action.date) return show('routineMsg', 'Pick a date', false);
+  } else {
+    if (!routineDays.length) return show('routineMsg', 'Pick at least one day', false);
+    action.days = routineDays;
+  }
+  routineAct(action);
+  document.getElementById('rtTitle').value = '';
+  show('routineMsg', '✓ Added', true);
 }
 
 // ----- meals -----
@@ -1628,11 +1789,35 @@ const WIZ_STEPS = [
         <code>groceries: oat milk</code> from anywhere lands straight on the list.</div>
       </div>
       <div class="card">
+        <strong>Routines <span style="font-size:12px;color:#737983;">(optional)</span></strong>
+        <div class="wiz-sub" style="margin:6px 0 8px;">A separate <strong>Routines</strong> tab
+        for the kids' get-ready checklists — pack homework, lunch, brush teeth — grouped by
+        morning / evening. They tick each one off and it resets the next day. No stars, just
+        a list to finish. Off by default so it never clutters the board.</div>
+        <label style="display:flex;align-items:center;gap:10px;font-size:15px;">
+          <input type="checkbox" id="wizRoutines" style="width:20px;height:20px;flex:none;">
+          Add the Routines tab to my board
+        </label>
+      </div>
+      <div class="card">
         <strong>Parents stay in charge</strong>
         <div class="wiz-sub" style="margin:6px 0 0;">A <strong>kid lock</strong> PIN
         (Settings) gates adding and deleting things on the touchscreen, and Settings
-        also lets you switch whole tabs off if your family doesn't use them.</div>
+        also lets you switch whole tabs off (or on, like Routines) any time.</div>
       </div>`,
+    onShow: async () => {
+      try {
+        const f = await (await fetch('/api/features')).json();
+        document.getElementById('wizRoutines').checked = !!f.routines;
+      } catch(e){}
+    },
+    onNext: async () => {
+      try {
+        await fetch('/api/features', {method:'POST', body: JSON.stringify({
+          routines: document.getElementById('wizRoutines').checked })});
+      } catch(e){}
+      return true;
+    },
     next: 'Continue' },
 
   { kicker: 'STEP 6 · AI (OPTIONAL)', title: 'Add superpowers with a Gemini key',
@@ -1782,8 +1967,9 @@ const WIZ_STEPS = [
           <li><strong>Magic words:</strong> a calendar event titled
           <code>groceries: oat milk</code> or <code>chore: water the plants</code>
           goes to the right place instead of the calendar.</li>
-          <li><strong>Chores &amp; stars, lists and meals</strong> each have a tab on the
-          board and here — switch any of them off under Settings.</li>
+          <li><strong>Chores &amp; stars, lists, meals</strong> (and optional
+          <strong>routines</strong>) each have a tab on the board and here — switch any of
+          them on or off under Settings → Board tabs.</li>
           <li><strong>Add this page to your home screen</strong> (Share → Add to Home
           Screen) and it opens like an app.</li>
         </ol>

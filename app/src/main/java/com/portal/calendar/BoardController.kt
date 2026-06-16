@@ -69,13 +69,14 @@ class BoardController(private val baseCtx: Context) {
     private var lastDayStamp = ""
     private var statusLine = "Starting…"
 
-    // Top-level tabs: 0=Calendar 1=Chores 2=Lists 3=Meals
+    // Top-level tabs: 0=Calendar 1=Chores 2=Lists 3=Meals 4=Routines
     private var currentTab = 0
     private lateinit var tabButtons: List<TextView>
     private lateinit var tabPanels: List<View>
     private lateinit var listsTab: ListsTab
     private lateinit var choresTab: ChoresTab
     private lateinit var mealsTab: MealsTab
+    private lateinit var routinesTab: RoutinesTab
 
     private lateinit var clockText: TextView
     private lateinit var dateText: TextView
@@ -227,7 +228,19 @@ class BoardController(private val baseCtx: Context) {
             1 -> choresTab.render()
             2 -> listsTab.render()
             3 -> mealsTab.render()
+            4 -> routinesTab.render()
         }
+        refreshFocusables()
+    }
+
+    /** Keep newly-rendered clickable views reachable by a Portal-TV remote. */
+    private fun refreshFocusables() {
+        // `view` is assigned by `view = buildUi()`, but buildUi() itself calls
+        // setTab() → here before it returns, so the field is still null on that
+        // first pass. Skip it; start()'s renderAll() runs the first real pass
+        // once the tree (and the FocusHighlight overlay) actually exist.
+        @Suppress("SENSELESS_COMPARISON")
+        if (view != null) FocusHighlight.enableDpadFocus(view)
     }
 
     private fun renderWeather() {
@@ -241,7 +254,8 @@ class BoardController(private val baseCtx: Context) {
         val flags = listOf(true,
             store.featureEnabled("chores"),
             store.featureEnabled("lists"),
-            store.featureEnabled("meals"))
+            store.featureEnabled("meals"),
+            store.featureEnabled("routines", default = false))
         tabButtons.forEachIndexed { i, b ->
             b.visibility = if (flags[i]) View.VISIBLE else View.GONE
         }
@@ -287,6 +301,10 @@ class BoardController(private val baseCtx: Context) {
         if (choreOverlay.visibility == View.VISIBLE) {
             hideKeyboard()
             choreOverlay.visibility = View.GONE; closed = true
+        }
+        if (routineOverlay.visibility == View.VISIBLE) {
+            hideKeyboard()
+            routineOverlay.visibility = View.GONE; closed = true
         }
         if (mealAiOverlay.visibility == View.VISIBLE) {
             hideKeyboard()
@@ -465,6 +483,8 @@ class BoardController(private val baseCtx: Context) {
         root.addView(detailOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         choreOverlay = buildChoreOverlay()
         root.addView(choreOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        routineOverlay = buildRoutineOverlay()
+        root.addView(routineOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         mealAiOverlay = buildMealAiOverlay()
         root.addView(mealAiOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         confirmOverlay = buildConfirmOverlay()
@@ -492,6 +512,9 @@ class BoardController(private val baseCtx: Context) {
         // Topmost, touch-transparent layer for chore-completion confetti.
         celebration = CelebrationView(ctx)
         root.addView(celebration, FrameLayout.LayoutParams(MATCH, MATCH))
+        // Above everything: the remote-navigation focus outline (Portal TV).
+        // Touch-transparent and invisible during touch use.
+        root.addView(FocusHighlight(ctx), FrameLayout.LayoutParams(MATCH, MATCH))
         return root
     }
 
@@ -805,6 +828,301 @@ class BoardController(private val baseCtx: Context) {
             choreOverlay.visibility = View.GONE
         }.onFailure {
             choreMsg.text = it.message ?: "Couldn't add the chore"
+        }
+    }
+
+    // ------------------------------------------------------ routine composer
+
+    private lateinit var routineOverlay: FrameLayout
+    private lateinit var routineTitleInput: EditText
+    private lateinit var routineMemberRow: LinearLayout
+    private lateinit var routineBankRow: LinearLayout
+    private val routineSelectedIds = HashSet<String>()
+    private lateinit var routineSectionRow: LinearLayout
+    private lateinit var routineRepeatBtn: TextView
+    private lateinit var routineOnceBtn: TextView
+    private lateinit var routineDaysRow: LinearLayout
+    private lateinit var routineDateRow: LinearLayout
+    private lateinit var routineDateLabel: TextView
+    private lateinit var routineMsg: TextView
+    private var routineIcon = "✅"
+    private var routineSection = "morning"
+    private var routineOneTime = false
+    private var routineDate: Calendar = Calendar.getInstance()
+    private val routineDays = sortedSetOf(1, 2, 3, 4, 5, 6, 7)
+    private lateinit var routineDayChips: List<TextView>
+    private lateinit var routineSectionChips: List<TextView>
+
+    private fun showRoutineOverlay() {
+        val members = Members.all(ctx)
+        if (members.isEmpty()) {
+            confirm("No family members yet", "Add them on the setup page (⚙ shows the address)", "OK") {}
+            return
+        }
+        routineTitleInput.setText("")
+        routineIcon = "✅"
+        routineSection = "morning"
+        routineSelectedIds.clear()
+        members.firstOrNull()?.let { routineSelectedIds.add(it.id) }
+        routineOneTime = false
+        routineDate = Calendar.getInstance()
+        routineDays.clear(); routineDays.addAll(1..5) // default school days
+        routineMsg.text = ""
+        refreshRoutineOverlay()
+        routineOverlay.visibility = View.VISIBLE
+    }
+
+    private fun refreshRoutineOverlay() {
+        routineBankRow.removeAllViews()
+        for ((icon, title) in ROUTINE_BANK) {
+            routineBankRow.addView(TextView(ctx).apply {
+                text = "$icon $title"
+                textSize = 13f
+                setTextColor(INK)
+                background = rounded(PILL, 16)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                setOnClickListener {
+                    routineIcon = icon
+                    routineTitleInput.setText(title)
+                    refreshRoutineOverlay()
+                }
+            }, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(6) })
+        }
+
+        val members = Members.all(ctx)
+        routineMemberRow.removeAllViews()
+        for (m in members) {
+            val selected = routineSelectedIds.contains(m.id)
+            routineMemberRow.addView(TextView(ctx).apply {
+                text = m.name
+                textSize = 14f
+                gravity = Gravity.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                background = rounded(if (selected) m.color else PILL, 18)
+                setTextColor(if (selected) Color.WHITE else INK)
+                setPadding(dp(16), dp(7), dp(16), dp(7))
+                setOnClickListener {
+                    if (!routineSelectedIds.remove(m.id)) routineSelectedIds.add(m.id)
+                    refreshRoutineOverlay()
+                }
+            }, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(8) })
+        }
+
+        routineSectionChips.forEach { chip ->
+            val key = chip.tag as String
+            val on = routineSection == key
+            chip.background = rounded(if (on) ACCENT else PILL, 16)
+            chip.setTextColor(if (on) Color.WHITE else INK)
+        }
+
+        routineRepeatBtn.background = rounded(if (!routineOneTime) ACCENT else PILL, 18)
+        routineRepeatBtn.setTextColor(if (!routineOneTime) Color.WHITE else INK)
+        routineOnceBtn.background = rounded(if (routineOneTime) ACCENT else PILL, 18)
+        routineOnceBtn.setTextColor(if (routineOneTime) Color.WHITE else INK)
+        routineDaysRow.visibility = if (routineOneTime) View.GONE else View.VISIBLE
+        routineDateRow.visibility = if (routineOneTime) View.VISIBLE else View.GONE
+        routineDateLabel.text = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(routineDate.time)
+        routineDayChips.forEach { chip ->
+            val dow = chip.tag as Int
+            val on = routineDays.contains(dow)
+            chip.background = rounded(if (on) ACCENT else PILL, 16)
+            chip.setTextColor(if (on) Color.WHITE else INK)
+        }
+    }
+
+    private fun buildRoutineOverlay(): FrameLayout {
+        val scrim = FrameLayout(ctx).apply {
+            setBackgroundColor(SCRIM)
+            visibility = View.GONE
+            setOnClickListener { hideKeyboard(); visibility = View.GONE }
+        }
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(CARD, 20)
+            elevation = dp(10).toFloat()
+            setPadding(dp(28), dp(20), dp(28), dp(16))
+            isClickable = true
+        }
+        card.addView(TextView(ctx).apply {
+            text = "New routine item"
+            textSize = 20f
+            setTextColor(INK)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }, lpMatchWrap(bottom = dp(10)))
+
+        routineBankRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        card.addView(android.widget.HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(routineBankRow)
+        }, LinearLayout.LayoutParams(dp(520), WRAP).apply { bottomMargin = dp(12) })
+
+        routineTitleInput = EditText(ctx).apply {
+            hint = "Or type an item…"
+            textSize = 16f
+            setTextColor(INK)
+            setHintTextColor(FAINT)
+            isSingleLine = true
+            background = roundedStroke(Palette.FIELD, 12, dp(1), Palette.FIELD_STROKE)
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+        }
+        card.addView(routineTitleInput, LinearLayout.LayoutParams(dp(520), WRAP).apply { bottomMargin = dp(12) })
+
+        // Time-of-day section chips -----------------------------------------
+        val sectionWrap = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        sectionWrap.addView(TextView(ctx).apply {
+            text = "When"
+            textSize = 13f
+            setTextColor(MUTED)
+            layoutParams = LinearLayout.LayoutParams(dp(50), WRAP)
+        })
+        routineSectionRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val sChips = ArrayList<TextView>()
+        for ((key, icon) in Routines.SECTIONS) {
+            val chip = TextView(ctx).apply {
+                text = "$icon ${key.replaceFirstChar { it.uppercase() }}"
+                textSize = 13f
+                gravity = Gravity.CENTER
+                tag = key
+                setPadding(dp(12), dp(7), dp(12), dp(7))
+                setOnClickListener { routineSection = key; refreshRoutineOverlay() }
+            }
+            routineSectionRow.addView(chip, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(6) })
+            sChips.add(chip)
+        }
+        routineSectionChips = sChips
+        sectionWrap.addView(android.widget.HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(routineSectionRow)
+        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        card.addView(sectionWrap, lpMatchWrap(bottom = dp(10)))
+
+        // Who + repeat/once --------------------------------------------------
+        val whoRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        whoRow.addView(TextView(ctx).apply {
+            text = "For"
+            textSize = 13f
+            setTextColor(MUTED)
+            layoutParams = LinearLayout.LayoutParams(dp(50), WRAP)
+        })
+        routineMemberRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        whoRow.addView(routineMemberRow, LinearLayout.LayoutParams(0, WRAP, 1f))
+        whoRow.addView(spacer(dp(8)))
+        routineRepeatBtn = TextView(ctx).apply {
+            text = "Repeats"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+            setOnClickListener { routineOneTime = false; refreshRoutineOverlay() }
+        }
+        routineOnceBtn = TextView(ctx).apply {
+            text = "One time"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+            setOnClickListener { routineOneTime = true; refreshRoutineOverlay() }
+        }
+        whoRow.addView(routineRepeatBtn)
+        whoRow.addView(spacer(dp(6)))
+        whoRow.addView(routineOnceBtn)
+        card.addView(whoRow, lpMatchWrap(bottom = dp(10)))
+
+        // Weekday chips (repeating) ------------------------------------------
+        routineDaysRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val chips = ArrayList<TextView>()
+        val dowCal = Calendar.getInstance()
+        while (dowCal.get(Calendar.DAY_OF_WEEK) != store.weekStartResolved())
+            dowCal.add(Calendar.DAY_OF_MONTH, -1)
+        val dowFmt = SimpleDateFormat("EEEEE", Locale.getDefault())
+        repeat(7) {
+            val dow = dowCal.get(Calendar.DAY_OF_WEEK)
+            val chip = TextView(ctx).apply {
+                text = dowFmt.format(dowCal.time)
+                textSize = 14f
+                gravity = Gravity.CENTER
+                tag = dow
+                setOnClickListener {
+                    if (!routineDays.remove(dow)) routineDays.add(dow)
+                    refreshRoutineOverlay()
+                }
+            }
+            routineDaysRow.addView(chip, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                rightMargin = dp(6)
+            })
+            chips.add(chip)
+            dowCal.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        routineDayChips = chips
+        card.addView(routineDaysRow, lpMatchWrap(bottom = dp(8)))
+
+        // Date stepper (one-time) --------------------------------------------
+        routineDateRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        routineDateRow.addView(navButton("‹") {
+            routineDate.add(Calendar.DAY_OF_MONTH, -1); refreshRoutineOverlay()
+        })
+        routineDateLabel = TextView(ctx).apply {
+            textSize = 16f
+            setTextColor(INK)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        routineDateRow.addView(routineDateLabel, LinearLayout.LayoutParams(dp(170), WRAP))
+        routineDateRow.addView(navButton("›") {
+            routineDate.add(Calendar.DAY_OF_MONTH, 1); refreshRoutineOverlay()
+        })
+        card.addView(routineDateRow, lpMatchWrap(bottom = dp(8)))
+
+        routineMsg = TextView(ctx).apply {
+            textSize = 13f
+            setTextColor(ACCENT)
+            minHeight = dp(18)
+        }
+        card.addView(routineMsg, lpMatchWrap())
+
+        val buttons = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        buttons.addView(navButton("Cancel") { hideKeyboard(); routineOverlay.visibility = View.GONE })
+        buttons.addView(accentButton("Add item") { saveNewRoutine() })
+        card.addView(buttons, lpMatchWrap(top = dp(8)))
+
+        scrim.addView(overlayScroll(card), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        return scrim
+    }
+
+    private fun saveNewRoutine() {
+        val title = routineTitleInput.text.toString().trim()
+        if (title.isEmpty()) { routineMsg.text = "Pick from the bank or type an item"; return }
+        if (!routineOneTime && routineDays.isEmpty()) { routineMsg.text = "Pick at least one day"; return }
+        if (routineSelectedIds.isEmpty()) { routineMsg.text = "Pick at least one person"; return }
+        runCatching {
+            val action = org.json.JSONObject()
+                .put("action", "addItem")
+                .put("title", title)
+                .put("icon", routineIcon)
+                .put("section", routineSection)
+                .put("memberIds", org.json.JSONArray(routineSelectedIds.toList()))
+            if (routineOneTime) {
+                action.put("oneTime", true)
+                action.put("date", SimpleDateFormat("yyyy-MM-dd", Locale.US).format(routineDate.time))
+            } else {
+                action.put("days", org.json.JSONArray(routineDays.toList()))
+            }
+            Routines.mutate(ctx, action)
+        }.onSuccess {
+            hideKeyboard()
+            routineOverlay.visibility = View.GONE
+        }.onFailure {
+            routineMsg.text = it.message ?: "Couldn't add the item"
         }
     }
 
@@ -1240,7 +1558,7 @@ class BoardController(private val baseCtx: Context) {
             setPadding(dp(22), dp(12), dp(22), 0)
         }
         val tabs = ArrayList<TextView>()
-        listOf("Calendar", "Chores", "Lists", "Meals").forEachIndexed { i, label ->
+        listOf("Calendar", "Chores", "Lists", "Meals", "Routines").forEachIndexed { i, label ->
             val t = TextView(ctx).apply {
                 text = label
                 textSize = 15f
@@ -1293,7 +1611,23 @@ class BoardController(private val baseCtx: Context) {
             detailOverlay.visibility = View.VISIBLE
         }, onPlanMeal = { requirePin { showMealAiOverlay() } })
         area.addView(mealsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
-        tabPanels = listOf(weekPanel, choresTab.view, listsTab.view, mealsTab.view)
+        routinesTab = RoutinesTab(ctx,
+            onAddItem = { requirePin { showRoutineOverlay() } },
+            onGate = { memberPin, memberName, action ->
+                askPin(memberPin, "$memberName's list ✅", action)
+            },
+            onRemoveItem = { id, label ->
+                requirePin {
+                    confirm("Remove this routine item?", label, "Remove") {
+                        runCatching {
+                            Routines.mutate(ctx, org.json.JSONObject()
+                                .put("action", "deleteItem").put("itemId", id))
+                        }
+                    }
+                }
+            })
+        area.addView(routinesTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
+        tabPanels = listOf(weekPanel, choresTab.view, listsTab.view, mealsTab.view, routinesTab.view)
 
         // Nav row -------------------------------------------------------
         // Portrait is too narrow to fit the title + all controls on one line
@@ -1498,7 +1832,9 @@ class BoardController(private val baseCtx: Context) {
             1 -> choresTab.render()
             2 -> listsTab.render()
             3 -> mealsTab.render()
+            4 -> routinesTab.render()
         }
+        refreshFocusables()
     }
 
     private fun placeholderPanel(message: String): FrameLayout =
@@ -2458,6 +2794,7 @@ class BoardController(private val baseCtx: Context) {
                     1 -> choresTab.render()
                     2 -> listsTab.render()
                     3 -> mealsTab.render()
+                    4 -> routinesTab.render()
                 }
             }
         }
@@ -2805,6 +3142,13 @@ class BoardController(private val baseCtx: Context) {
             "🐕" to "Feed the pet", "🍽️" to "Set the table", "🥣" to "Clear the dishes",
             "🧺" to "Put laundry away", "🧸" to "Tidy your room", "🗑️" to "Take out the trash",
             "🚿" to "Shower", "🎵" to "Practice music", "🪴" to "Water the plants")
+
+        /** Quick-pick get-ready items for the on-device routine composer. */
+        private val ROUTINE_BANK = listOf(
+            "🎒" to "Pack the backpack", "📚" to "Pack homework", "🥪" to "Pack lunch",
+            "💧" to "Fill water bottle", "👟" to "Shoes on", "🧥" to "Grab a coat",
+            "🦷" to "Brush teeth", "🛏️" to "Make the bed", "👕" to "Get dressed",
+            "🍎" to "Eat breakfast", "📱" to "Charge devices", "🌙" to "Pajamas on")
 
         // Single source of truth: Palette.kt. Getters (not cached vals) so a
         // theme switch — which rebuilds the board — is reflected live.
