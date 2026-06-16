@@ -327,17 +327,17 @@
     <div style="font-size:13px;color:#737983;margin:6px 0 10px;">What the Portal does when no one's touched the board for a while.</div>
     <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;color:#333a45;margin-bottom:10px;">
       <input type="radio" name="ssMode" value="takeover" onchange="saveSaver()" style="width:20px;height:20px;flex:none;margin-top:2px;">
-      <span>Keep showing the calendar<br><span style="font-size:13px;color:#8b949e;">Always-on display — the board never sleeps.</span></span>
+      <span>Keep showing the calendar<br><span style="font-size:13px;color:#8b949e;">Always-on display — the board never sleeps. <strong>Heads up:</strong> this turns off the Portal's screensaver completely — even for other apps, and even after you exit the calendar — until you switch this back. (No screensaver coming on? It's almost always this setting.)</span></span>
     </label>
     <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;color:#333a45;margin-bottom:10px;">
       <input type="radio" name="ssMode" value="yield" onchange="saveSaver()" style="width:20px;height:20px;flex:none;margin-top:2px;">
       <span>Let the screensaver run after
         <input type="number" id="ssMins" min="1" max="120" onchange="saveSaver()" style="width:56px;padding:2px 6px;"> minutes
-        <br><span style="font-size:13px;color:#8b949e;">The Portal's screensaver (Immortal's, or its own) takes over when idle; tap to return. Gentler on the screen.</span></span>
+        <br><span style="font-size:13px;color:#8b949e;">The Portal's screensaver (Immortal's, or its own) takes over when idle; tap to return. Gentler on the screen, and leaves the screensaver working normally.</span></span>
     </label>
     <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;color:#333a45;">
       <input type="radio" name="ssMode" value="off" onchange="saveSaver()" style="width:20px;height:20px;flex:none;margin-top:2px;">
-      <span>Off<br><span style="font-size:13px;color:#8b949e;">Screensaver runs only once you exit the calendar.</span></span>
+      <span>Off<br><span style="font-size:13px;color:#8b949e;">The board holds the screen on only while it's open; your normal screensaver runs as usual once you leave the calendar.</span></span>
     </label>
     <div id="ssNote" style="color:#8b949e;font-size:13px;margin-top:10px;"></div>
   </div>
@@ -681,7 +681,7 @@ function applySaverStatus(st){
   const mins = document.getElementById('ssMins');
   if (document.activeElement !== mins) mins.value = st.yieldMinutes; // don't fight the user typing
   document.getElementById('ssNote').textContent =
-    st.mode === 'takeover' ? 'The calendar stays up when idle. Tap ✕ on the board to leave.' :
+    st.mode === 'takeover' ? 'The calendar stays up when idle. Tap ✕ on the board to leave. While this is on, the Portal\'s screensaver won\'t come on at all (for any app) — switch to one of the options above to get it back.' :
     st.mode === 'yield' ? 'After about ' + st.yieldMinutes + ' min untouched, the screensaver takes over; tap to bring the calendar back.' :
     'The screensaver runs only when the calendar is closed.';
 }
@@ -1853,17 +1853,17 @@ const WIZ_STEPS = [
         <strong>When the Portal is idle</strong>
         <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;margin-top:10px;">
           <input type="radio" name="wizIdle" value="takeover" style="width:20px;height:20px;flex:none;margin-top:2px;">
-          <span>Keep showing the calendar<br><span style="font-size:13px;color:#8b949e;">A true always-on wall display. Tap ✕ to leave.</span></span>
+          <span>Keep showing the calendar<br><span style="font-size:13px;color:#8b949e;">A true always-on wall display. Tap ✕ to leave. Note: this disables the Portal's screensaver entirely — for other apps too, until you switch it back.</span></span>
         </label>
         <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;margin-top:10px;">
           <input type="radio" name="wizIdle" value="yield" style="width:20px;height:20px;flex:none;margin-top:2px;">
           <span>Let the screensaver run after
             <input type="number" id="wizIdleMins" min="1" max="120" value="10" style="width:52px;padding:2px 6px;"> min
-            <br><span style="font-size:13px;color:#8b949e;">Gentler on the screen; tap to return to the board.</span></span>
+            <br><span style="font-size:13px;color:#8b949e;">Gentler on the screen; tap to return to the board. Leaves your screensaver working normally.</span></span>
         </label>
         <label style="display:flex;align-items:flex-start;gap:10px;font-size:15px;margin-top:10px;">
           <input type="radio" name="wizIdle" value="off" style="width:20px;height:20px;flex:none;margin-top:2px;">
-          <span>Off<br><span style="font-size:13px;color:#8b949e;">Screensaver only once you exit the calendar.</span></span>
+          <span>Off<br><span style="font-size:13px;color:#8b949e;">Your normal screensaver runs as usual once you exit the calendar.</span></span>
         </label>
       </div>
       <div class="card">
