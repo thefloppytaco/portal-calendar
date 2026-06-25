@@ -94,7 +94,8 @@ portal-calendar/
                 Screensaver.kt       # idle mode (takeover / yield / off) + yield timing
 ```
 
-**No `src/test` or `src/androidTest` directory exists** — see §8.
+**`src/test` holds a small JVM unit-test harness** (JUnit) covering pure logic such as
+`CalendarQuery`; there is still no `src/androidTest` / instrumentation suite — see §8.
 
 ---
 
@@ -313,6 +314,15 @@ a physical, discontinued consumer device on the user's home network.
   (takeover), `FOREGROUND_SERVICE`, `RECEIVE_BOOT_COMPLETED`, `RECORD_AUDIO`
   (optional voice), and optional adb-granted `PACKAGE_USAGE_STATS` (takeover
   guard). No location, contacts, or storage permissions.
+- **Assistant tool provider:** `CalendarToolProvider` is an **exported**
+  `ContentProvider` (`com.portal.calendar.tools`) that answers the Portal
+  assistant's `get_agenda` tool. It returns the upcoming **agenda as text**
+  (titles/times/locations/people) so the assistant (Google Gemini) can reason
+  over real data instead of blind-querying — fuller event *content* leaves the
+  device than a per-question slice would, but the **iCal feed URLs and
+  credentials never do**. Being exported, any app on the device can read the
+  agenda (same exposure as the board on screen); the assistant additionally
+  gates it behind a user allowlist. Read-only.
 - **Known sharp edges:** (a) `/api/family` serves `members.json` (incl. PINs)
   raw over the LAN to spokes — fine for a trusted network, but unauthenticated;
   (b) `sync_mirror_all` shares **one** Google refresh token across devices, which
@@ -343,8 +353,11 @@ adb shell am start -n com.portal.calendar/.MainActivity
 reboot.
 
 ### Testing
-- **No automated test suite** (no JUnit/Espresso/`src/test` or `src/androidTest`).
-- **Verification is manual, on real hardware:** build → install → drive the board
+- **Minimal JVM unit tests** under `src/test` (JUnit) cover pure logic only — e.g.
+  `CalendarQueryTest` (the assistant `get_agenda` tool's window/date math) and
+  `AgendaFormatterTest` (the agenda text rendering) (`./gradlew
+  :app:testDebugUnitTest`). No instrumentation/`src/androidTest` suite.
+- **Verification is otherwise manual, on real hardware:** build → install → drive the board
   and config page → confirm via screenshots and `adb logcat`. (E.g. the
   v3.5.0 launch crash was caught only by an on-device launch, not by the clean
   compile — device-testing is the de-facto gate.)
@@ -364,7 +377,8 @@ reboot.
 - **Release signing uses the debug keystore.** Functional (consistent cert) but
   not best practice; a proper release keystore would be a one-way migration that
   breaks in-place updates, so it's deliberately deferred.
-- **No automated tests / CI.** All regressions are caught by hand on-device.
+- **Minimal tests / no CI.** Only pure-logic JVM unit tests exist; UI/integration
+  regressions are still caught by hand on-device.
 - **`BoardController.kt` is very large** (~3k lines) — the board UI, overlays,
   composers, and refresh loops could be split.
 - **Unauthenticated config server** and **PIN-over-LAN to spokes** (§7).

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tool declaration advertised to the Portal assistant (com.portal.assistant.tools
+  meta-data on CalendarToolProvider). A JSON array of Gemini function declarations.
+  The assistant reads this as a string resource, so the JSON quotes are escaped (\").
+-->
+<resources>
+    <string name="portal_tools">[{\"name\":\"com.portal.calendar.get_agenda\",\"description\":\"Returns the family calendar as readable text to answer any question.\",\"parameters\":{\"type\":\"OBJECT\",\"properties\":{\"days\":{\"type\":\"INTEGER\",\"description\":\"How many days of agenda to return, starting from start (default 14, max 60).\"},\"start\":{\"type\":\"STRING\",\"description\":\"First day to include, ISO date YYYY-MM-DD. Defaults to today. Use it to look at a specific future day or week.\"}},\"required\":[]}}]</string>
+
+    <!-- One-sentence summary shown in the assistant's Settings → External tools row (ToolContract
+         META_SUMMARY). Not sent to the model — the per-tool descriptions above drive tool-calling. -->
+    <string name="portal_tools_summary">Answer questions about the family calendar.</string>
+</resources>

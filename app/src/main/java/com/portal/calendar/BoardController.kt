@@ -432,6 +432,8 @@ class BoardController(private val baseCtx: Context) {
             if (stopped) return@requestSync // board rebuilt mid-sync — don't touch dead views
             events = evs
             App.instance.lastEvents = evs
+            App.instance.lastSyncAt = System.currentTimeMillis()
+            App.instance.lastSyncProblems = problems
             statusLine = if (problems.isEmpty())
                 "Updated " + timeFormat().format(Calendar.getInstance().time)
             else problems.joinToString("\n")
@@ -2326,6 +2328,8 @@ class BoardController(private val baseCtx: Context) {
                         DeletedEvents.suppress(ctx, ev.uid)
                         events = events.filterNot { it.uid == ev.uid && it.uid.isNotEmpty() }
                         App.instance.lastEvents = events
+                        // Don't bump lastSyncAt: this is a local edit, not a feed refresh.
+                        // doSync() below sets it when the real sync lands.
                         renderAll()
                         doSync()
                     } else {
