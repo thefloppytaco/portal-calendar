@@ -32,11 +32,23 @@ class App : Application() {
     private val main = Handler(Looper.getMainLooper())
     private val configListeners = CopyOnWriteArraySet<() -> Unit>()
 
+    /** Set once onCreate has wired up store/sync/server — guards against a binder-thread
+     *  provider call() that lands mid-startup (instance set, dependencies not yet). */
+    @Volatile var ready = false
+
     /** The board currently on screen, if any — used for live scale preview. */
     var activeBoard: BoardController? = null
 
     /** Last synced events, so a rebuilt board paints instantly instead of empty. */
     @Volatile var lastEvents: List<EventInstance> = emptyList()
+
+    /** When [lastEvents] was last refreshed (epoch ms; 0 = never). Surfaced to the
+     *  assistant as `asOf` so it can judge staleness when the board isn't on screen. */
+    @Volatile var lastSyncAt: Long = 0L
+
+    /** Per-feed problems from the last sync (e.g. a feed that failed to fetch/parse), so the
+     *  assistant tool can note that the agenda may be missing a calendar. */
+    @Volatile var lastSyncProblems: List<String> = emptyList()
 
     fun onMain(block: () -> Unit) {
         main.post(block)
@@ -47,6 +59,9 @@ class App : Application() {
         instance = this
         store = ConfigStore(this)
         sync = SyncManager(this, store)
+        // The assistant tool only needs store + sync — mark ready now so a cold provider
+        // call isn't blocked (or wedged) by the peripheral startup that follows.
+        ready = true
         server = ConfigServer(this, store) { notifyConfigChanged() }
         try {
             server?.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, true)
@@ -144,5 +159,11 @@ class App : Application() {
 
     companion object {
         lateinit var instance: App
+
+        /** Null until [onCreate] has fully run — a ContentProvider call() can land on a
+         *  binder thread mid-startup, before `instance` or its deps are set. Gated on
+         *  [ready] so callers never see a half-initialized App. */
+        fun instanceOrNull(): App? =
+            if (::instance.isInitialized && instance.ready) instance else null
     }
 }
