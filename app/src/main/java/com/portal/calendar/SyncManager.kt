@@ -70,9 +70,11 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
             try {
                 if (conn.responseCode !in 200..299)
                     throw RuntimeException("HTTP ${conn.responseCode}")
-                val text = conn.inputStream.bufferedReader().readText()
-                if (!text.contains("BEGIN:VCALENDAR"))
+                val raw = conn.inputStream.bufferedReader().readText()
+                if (!raw.contains("BEGIN:VCALENDAR"))
                     throw RuntimeException("not an iCal feed")
+                // Drop properties the board never reads before caching/parsing (see IcsFilter).
+                val text = IcsFilter.keepNeededProperties(raw)
                 // Atomic: a crash mid-write must not corrupt the offline copy.
                 val tmp = File(cache.path + ".tmp")
                 tmp.writeText(text)
