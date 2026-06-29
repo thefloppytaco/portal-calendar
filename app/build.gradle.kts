@@ -36,4 +36,6 @@ dependencies {
   implementation("net.sf.biweekly:biweekly:0.6.8")
   // CalDAV (PROPFIND/PUT) — HttpURLConnection can't send PROPFIND.
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
+  // JVM unit tests for pure logic (e.g. IcsFilter).
+  testImplementation("junit:junit:4.13.2")
 }
