@@ -431,9 +431,7 @@ class BoardController(private val baseCtx: Context) {
         sync.requestSync { evs, problems ->
             if (stopped) return@requestSync // board rebuilt mid-sync — don't touch dead views
             events = evs
-            App.instance.lastEvents = evs
-            App.instance.lastSyncAt = System.currentTimeMillis()
-            App.instance.lastSyncProblems = problems
+            App.instance.publishSync(evs, System.currentTimeMillis(), problems)
             statusLine = if (problems.isEmpty())
                 "Updated " + timeFormat().format(Calendar.getInstance().time)
             else problems.joinToString("\n")

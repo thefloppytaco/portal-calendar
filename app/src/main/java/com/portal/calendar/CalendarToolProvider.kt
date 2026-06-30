@@ -205,9 +205,7 @@ class CalendarToolProvider : ContentProvider() {
         if (!refreshing.compareAndSet(false, true)) return
         runCatching {
             app.sync.requestSync { evs, probs ->
-                app.lastEvents = evs
-                app.lastSyncAt = System.currentTimeMillis()
-                app.lastSyncProblems = probs
+                app.publishSync(evs, System.currentTimeMillis(), probs)
                 refreshing.set(false)
             }
         }.onFailure { refreshing.set(false) }

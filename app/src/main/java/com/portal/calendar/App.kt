@@ -54,11 +54,40 @@ class App : Application() {
         main.post(block)
     }
 
+    /** Publish a completed sync to the in-memory snapshot and persist it (off the main thread),
+     *  so a later cold start can answer from it without re-parsing every feed. A wholly-failed
+     *  sync (no events + problems) is not persisted, so it can't wipe the last good snapshot. */
+    fun publishSync(events: List<EventInstance>, at: Long, problems: List<String>) {
+        lastEvents = events
+        lastSyncAt = at
+        lastSyncProblems = problems
+        if (events.isNotEmpty() || problems.isEmpty()) {
+            Thread { runCatching { Snapshot.save(this, events, at, problems) } }.start()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         store = ConfigStore(this)
         sync = SyncManager(this, store)
+        // Prime from the last persisted agenda BEFORE marking ready, so a cold provider call
+        // answers instantly from the last good data instead of re-parsing every ICS cache.
+        Snapshot.load(this)?.let { snap ->
+            // Drop events (and the matching "Name: ..." problems) for feeds no longer configured,
+            // so a removed/renamed calendar isn't resurrected on a cold start. Adopt the "as of"
+            // only when usable events remain, else leave it 0 so the tool refreshes.
+            val names = store.feeds().filter { it.kind != "inbox" }.map { it.name }.toSet()
+            val events = snap.events.filter { it.feedName in names }
+            if (events.isNotEmpty()) {
+                lastEvents = events
+                lastSyncAt = snap.syncedAt
+                lastSyncProblems = snap.problems.filter {
+                    val feed = it.substringBefore(": ", "")
+                    feed.isEmpty() || feed in names
+                }
+            }
+        }
         // The assistant tool only needs store + sync — mark ready now so a cold provider
         // call isn't blocked (or wedged) by the peripheral startup that follows.
         ready = true
