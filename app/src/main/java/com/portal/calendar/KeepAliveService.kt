@@ -29,6 +29,12 @@ import android.os.PowerManager
 class KeepAliveService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
+    private val rewardCheck = object : Runnable {
+        override fun run() {
+            runCatching { Rewards.notifyEligible(this@KeepAliveService, portalUrl()) }
+            handler.postDelayed(this, 5 * 60_000)
+        }
+    }
     private val guard = object : Runnable {
         override fun run() {
             runCatching {
@@ -54,11 +60,24 @@ class KeepAliveService : Service() {
             .setContentTitle("Family Calendar idle screen is on")
             .build())
         handler.postDelayed(guard, 30_000)
+        handler.postDelayed(rewardCheck, 60_000)
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(guard)
+        handler.removeCallbacks(rewardCheck)
         super.onDestroy()
+    }
+
+    private fun portalUrl(): String {
+        val configured = getSharedPreferences("config", MODE_PRIVATE)
+            .getString("portal_url", "").orEmpty().trim().trimEnd('/')
+        // Keep parent links usable both on the LAN and over Tailscale. The
+        // hostname resolves locally through the family's split-DNS setup.
+        return if (configured.isBlank() || configured == "http://192.168.0.122:8090" ||
+            configured == "http://100.103.246.81:8090") {
+            "http://kitchenportal.tail8278d1.ts.net:8090"
+        } else configured
     }
 
     private fun hasUsageAccess(): Boolean {

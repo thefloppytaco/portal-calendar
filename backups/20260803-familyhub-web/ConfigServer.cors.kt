@@ -1,0 +1,392 @@
+package com.portal.calendar
+
+import android.content.Context
+import fi.iki.elonen.NanoHTTPD
+
+/**
+ * Tiny HTTP server so calendars are configured from a phone instead of by
+ * typing on the Portal. GET / serves the setup page; the page talks JSON to
+ * /api/config and /api/sync.
+ */
+class ConfigServer(
+    private val ctx: Context,
+    private val store: ConfigStore,
+    private val onConfigChanged: () -> Unit
+) : NanoHTTPD(PORT) {
+
+    private class BodyTooLarge : Exception("request body too large")
+
+    override fun serve(session: IHTTPSession): Response = try {
+        route(session)
+    } catch (e: BodyTooLarge) {
+        // The unread body is still on the socket — don't let keep-alive reuse it.
+        newFixedLengthResponse(Response.Status.PAYLOAD_TOO_LARGE, "application/json",
+            "{\"error\":\"request too large\"}").apply { addHeader("connection", "close") }
+    } catch (e: IllegalArgumentException) {
+        newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+            "{\"error\":${jsonStr(e.message ?: "invalid input")}}")
+    } catch (e: Exception) {
+        newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+            "{\"error\":${jsonStr(e.message ?: e.javaClass.simpleName)}}")
+    }
+
+    private fun route(s: IHTTPSession): Response = when {
+        s.uri == "/" || s.uri == "/index.html" -> {
+            val html = ctx.assets.open("config.html").bufferedReader().readText()
+            newFixedLengthResponse(Response.Status.OK, "text/html", html)
+        }
+        s.uri == "/history.html" -> {
+            val html = ctx.assets.open("history.html").bufferedReader().readText()
+            newFixedLengthResponse(Response.Status.OK, "text/html", html)
+        }
+        s.uri == "/api/config" && s.method == Method.GET ->
+            json(store.feedsJson())
+        s.uri == "/api/config" && s.method == Method.POST -> {
+            store.saveJson(readBody(s))
+            onConfigChanged()
+            json("{\"ok\":true}")
+        }
+        s.uri == "/api/sync" && s.method == Method.POST -> {
+            readBody(s) // drain — an unread body corrupts the next keep-alive request
+            onConfigChanged()
+            json("{\"ok\":true}")
+        }
+        s.uri == "/manifest.json" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "application/json", """
+                {"name":"Family Calendar","short_name":"Family",
+                 "start_url":"/","display":"standalone",
+                 "background_color":"#f4f1ea","theme_color":"#f0584c",
+                 "icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml"}]}
+            """.trimIndent())
+        s.uri == "/icon.svg" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "image/svg+xml",
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">" +
+                "<rect width=\"100\" height=\"100\" rx=\"24\" fill=\"#F0584C\"/>" +
+                "<rect x=\"16\" y=\"28\" width=\"68\" height=\"56\" rx=\"10\" fill=\"white\"/>" +
+                "<rect x=\"24\" y=\"42\" width=\"32\" height=\"9\" rx=\"4.5\" fill=\"#2BB3A3\"/>" +
+                "<rect x=\"24\" y=\"56\" width=\"44\" height=\"9\" rx=\"4.5\" fill=\"#F2A93B\"/>" +
+                "<rect x=\"24\" y=\"70\" width=\"24\" height=\"9\" rx=\"4.5\" fill=\"#4FA3E3\"/></svg>")
+        s.uri == "/api/members" && s.method == Method.GET ->
+            json(Members.publicJson(ctx)) // PINs never go over HTTP
+        s.uri == "/api/members" && s.method == Method.POST -> {
+            Members.save(ctx, readBody(s))
+            json(Members.publicJson(ctx))
+        }
+        s.uri == "/api/lists" && s.method == Method.GET ->
+            json(FamilyLists.json(ctx))
+        s.uri == "/api/lists" && s.method == Method.POST ->
+            json(FamilyLists.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/shopping/command" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(FamilyLists.shoppingCommand(ctx, o.getString("operation"), o.getString("item")))
+        }
+        s.uri == "/api/gtasks/link" && s.method == Method.POST -> {
+            GoogleTasks.link(ctx, org.json.JSONObject(readBody(s)).getString("listId"))
+            json(FamilyLists.json(ctx))
+        }
+        s.uri == "/api/gtasks/unlink" && s.method == Method.POST -> {
+            GoogleTasks.unlink(ctx, org.json.JSONObject(readBody(s)).getString("listId"))
+            json(FamilyLists.json(ctx))
+        }
+        s.uri == "/api/sync/settings" && s.method == Method.GET ->
+            json(SyncSettings.json(ctx))
+        s.uri == "/api/sync/settings" && s.method == Method.POST ->
+            json(SyncSettings.save(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/chores" && s.method == Method.GET ->
+            json(Chores.statusJson(ctx))
+        s.uri == "/api/chores" && s.method == Method.POST ->
+            json(Chores.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/routines" && s.method == Method.GET ->
+            json(Routines.statusJson(ctx))
+        s.uri == "/api/routines" && s.method == Method.POST ->
+            json(Routines.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/history" && s.method == Method.GET ->
+            json(org.json.JSONObject().put("chores", org.json.JSONObject(Chores.historyJson(ctx)))
+                .put("routines", org.json.JSONObject(Routines.historyJson(ctx))).toString())
+        s.uri == "/api/history" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            val kind = o.getString("kind")
+            if (kind == "chore") Chores.mutate(ctx, o) else if (kind == "routine") Routines.mutate(ctx, o)
+            else throw IllegalArgumentException("unknown history kind")
+            json("{\"ok\":true}")
+        }
+        s.uri == "/api/rewards" && s.method == Method.GET ->
+            json(Rewards.preview(ctx, s.parameters["memberId"]?.firstOrNull().orEmpty()))
+        s.uri == "/api/rewards/message" && s.method == Method.GET -> {
+            val memberId = s.parameters["memberId"]?.firstOrNull().orEmpty()
+            val portalUrl = s.parameters["portalUrl"]?.firstOrNull().orEmpty()
+            json(org.json.JSONObject().put("title", "FamilyHub approval")
+                .put("message", Rewards.approvalMessage(ctx, memberId, portalUrl)).toString())
+        }
+        s.uri == "/api/gotify" && s.method == Method.GET ->
+            json("{\"configured\":${Gotify.configured(ctx)},\"url\":${jsonStr(Gotify.url(ctx))}}")
+        s.uri == "/api/gotify" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            Gotify.save(ctx, o.getString("url"), o.optString("token").takeIf { it.isNotBlank() })
+            json("{\"ok\":true}")
+        }
+        s.uri == "/api/gotify/test" && s.method == Method.POST ->
+            json("{\"ok\":${Gotify.send(ctx, "FamilyHub test", "Gotify is connected to PortalHub.", 5)}}")
+        s.uri == "/api/meals" && s.method == Method.GET ->
+            json(Meals.statusJson(ctx))
+        s.uri == "/api/meals" && s.method == Method.POST ->
+            json(Meals.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/ai" && s.method == Method.GET ->
+            json(Gemini.statusJson(ctx))
+        s.uri == "/api/ai" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(Gemini.setConfig(ctx,
+                if (o.has("enabled")) o.getBoolean("enabled") else null,
+                if (o.has("key")) o.getString("key") else null,
+                if (o.has("model")) o.getString("model") else null))
+        }
+        s.uri == "/api/ai/import" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(Gemini.smartImport(ctx,
+                o.optString("text").takeIf { it.isNotEmpty() },
+                o.optString("image").takeIf { it.isNotEmpty() },
+                o.optString("mime").takeIf { it.isNotEmpty() }))
+        }
+        s.uri == "/api/ai/apply" && s.method == Method.POST ->
+            json(Gemini.applyProposals(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/ai/recipe" && s.method == Method.POST ->
+            json(Gemini.recipe(ctx, org.json.JSONObject(readBody(s)).getString("dish")))
+        s.uri == "/api/ai/meal" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(Gemini.planMeal(ctx,
+                o.getString("dish"), o.getString("date"), o.getString("slot"),
+                o.optBoolean("groceries", true)))
+        }
+        s.uri == "/api/setup" && s.method == Method.GET ->
+            json("{\"fresh\":${store.feeds().isEmpty() && !store.wizardDone()}}")
+        s.uri == "/api/setup" && s.method == Method.POST -> {
+            readBody(s) // drain — an unread body corrupts the next keep-alive request
+            store.setWizardDone()
+            json("{\"fresh\":false}")
+        }
+        s.uri == "/api/features" && s.method == Method.GET ->
+            json(featuresJson())
+        s.uri == "/api/features" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            for (key in listOf("chores", "lists", "meals", "routines"))
+                if (o.has(key)) store.setFeature(key, o.getBoolean(key))
+            App.instance.notifyDataChanged()
+            json(featuresJson())
+        }
+        s.uri == "/api/pin" && s.method == Method.GET ->
+            json("{\"enabled\":${store.pin().isNotEmpty()}}")
+        s.uri == "/api/pin" && s.method == Method.POST -> {
+            store.setPin(org.json.JSONObject(readBody(s)).optString("pin"))
+            json("{\"enabled\":${store.pin().isNotEmpty()}}")
+        }
+        s.uri == "/api/weather" && s.method == Method.GET ->
+            json(Weather.statusJson(ctx))
+        s.uri == "/api/weather/search" && s.method == Method.POST ->
+            json(Weather.search(org.json.JSONObject(readBody(s)).getString("q")).toString())
+        s.uri == "/api/weather/set" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            Weather.set(ctx,
+                if (o.has("lat")) o.getDouble("lat") else null,
+                if (o.has("lon")) o.getDouble("lon") else null,
+                if (o.has("label")) o.getString("label") else null,
+                if (o.has("unit")) o.getString("unit") else null)
+            Weather.maybeRefresh(ctx, force = true) // worker thread; fine
+            json(Weather.statusJson(ctx))
+        }
+        s.uri == "/api/weather/clear" && s.method == Method.POST -> {
+            readBody(s) // drain
+            Weather.clear(ctx)
+            App.instance.notifyDataChanged()
+            json(Weather.statusJson(ctx))
+        }
+        s.uri == "/api/writers" && s.method == Method.GET ->
+            json(Writers.statusJson(ctx))
+        s.uri == "/api/target" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            Writers.setTarget(ctx, o.getString("kind"), o.getString("id"))
+            json(Writers.statusJson(ctx))
+        }
+        s.uri == "/api/icloud/connect" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            CalDav.connect(ctx, o.getString("email").trim(), o.getString("password").trim())
+            Writers.ensureDefault(ctx)
+            json(Writers.statusJson(ctx))
+        }
+        s.uri == "/api/icloud/disconnect" && s.method == Method.POST -> {
+            readBody(s) // drain
+            CalDav.disconnect(ctx)
+            Writers.ensureDefault(ctx)
+            json(Writers.statusJson(ctx))
+        }
+        s.uri == "/api/google/begin" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            val url = GoogleCal.begin(ctx, o.getString("clientId").trim(), o.getString("clientSecret").trim())
+            json(org.json.JSONObject().put("authUrl", url).toString())
+        }
+        s.uri == "/api/google/code" && s.method == Method.POST -> {
+            GoogleCal.finish(ctx, org.json.JSONObject(readBody(s)).getString("code"))
+            Writers.ensureDefault(ctx)
+            json(Writers.statusJson(ctx))
+        }
+        s.uri == "/api/google/disconnect" && s.method == Method.POST -> {
+            readBody(s) // drain
+            GoogleCal.disconnect(ctx)
+            Writers.ensureDefault(ctx)
+            json(Writers.statusJson(ctx))
+        }
+        // Landing spot if the user swaps localhost→portal-ip on the Google
+        // redirect URL: completes the connection right here.
+        s.uri == "/oauth" && s.method == Method.GET -> {
+            val code = s.parameters["code"]?.firstOrNull()
+            val msg = try {
+                if (code.isNullOrEmpty()) throw IllegalArgumentException("no code in the URL")
+                GoogleCal.finish(ctx, code)
+                Writers.ensureDefault(ctx)
+                "✓ Google Calendar connected — you can close this tab and go back to the setup page."
+            } catch (e: Exception) {
+                "Couldn't finish the Google sign-in: ${e.message}"
+            }
+            newFixedLengthResponse(Response.Status.OK, "text/html",
+                "<html><body style=\"font-family:sans-serif;background:#f4f1ea;color:#333a45;padding:40px;\"><h2>$msg</h2></body></html>")
+        }
+        s.uri == "/api/event" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            val title = o.getString("title").trim()
+            if (title.isEmpty()) throw IllegalArgumentException("the event needs a title")
+            val allDay = o.optBoolean("allDay", false)
+            // optString turns a JSON null into the string "null" — normalize.
+            val time = o.optString("time").takeIf { it.isNotEmpty() && it != "null" }
+            val (start, end) = CalDav.eventWindow(
+                o.getString("date"), time,
+                o.optInt("durationMins", 60), allDay)
+            Writers.addEvent(ctx, title, start, end, allDay)
+            onConfigChanged() // pull feeds so the new event shows up ASAP
+            json("{\"ok\":true}")
+        }
+        s.uri == "/api/validate" && s.method == Method.POST -> {
+            val url = org.json.JSONObject(readBody(s)).getString("url")
+            val count = App.instance.sync.validateFeed(url)
+            json("{\"ok\":true,\"events\":$count}")
+        }
+        s.uri == "/api/export" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "text/plain", ConfigBundle.export(ctx))
+        s.uri == "/api/import" && s.method == Method.POST -> {
+            ConfigBundle.import(ctx, readBody(s))
+            App.instance.notifyDataChanged() // refresh chores/lists/meals tabs
+            onConfigChanged() // rebuilds the board (layout/feeds/creds all may differ)
+            json("{\"ok\":true}")
+        }
+        s.uri == "/api/layout" && s.method == Method.GET ->
+            json(org.json.JSONObject()
+                .put("weekStart", store.weekStart())
+                .put("defaultView", store.defaultView())
+                .put("orientation", store.orientation())
+                .put("theme", store.theme()).toString())
+        s.uri == "/api/layout" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            if (o.has("weekStart")) store.setWeekStart(o.getInt("weekStart"))
+            if (o.has("defaultView")) store.setDefaultView(o.getInt("defaultView"))
+            if (o.has("orientation")) store.setOrientation(o.getString("orientation"))
+            if (o.has("theme")) store.setTheme(o.getString("theme"))
+            onConfigChanged() // re-render / rebuild (week start, theme, orientation)
+            json(org.json.JSONObject()
+                .put("weekStart", store.weekStart())
+                .put("defaultView", store.defaultView())
+                .put("orientation", store.orientation())
+                .put("theme", store.theme()).toString())
+        }
+        s.uri == "/api/scale" && s.method == Method.GET ->
+            json("{\"scale\":${store.uiScale()}}")
+        s.uri == "/api/scale" && s.method == Method.POST -> {
+            store.setUiScale(org.json.JSONObject(readBody(s)).getDouble("scale").toFloat())
+            onConfigChanged() // board notices the change and rebuilds itself
+            json("{\"scale\":${store.uiScale()}}")
+        }
+        // Live zoom while the page's slider is being dragged — GPU transform
+        // only; the drag-end POST to /api/scale does the real re-layout.
+        s.uri == "/api/scale/preview" && s.method == Method.POST -> {
+            val v = org.json.JSONObject(readBody(s)).getDouble("scale").toFloat()
+            App.instance.onMain { App.instance.activeBoard?.previewScale(v) }
+            json("{\"ok\":true}")
+        }
+        // ---- Hub-and-spoke family sync ----
+        s.uri == "/api/familysync" && s.method == Method.GET ->
+            json(FamilySync.statusJson(ctx))
+        s.uri == "/api/familysync" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            FamilySync.setConfig(ctx,
+                if (o.has("role")) o.getString("role") else null,
+                if (o.has("manualHub")) o.getString("manualHub") else null,
+                if (o.has("mirrorAll")) o.getBoolean("mirrorAll") else null)
+            json(FamilySync.statusJson(ctx))
+        }
+        // Served by a hub to its spokes: raw shared family files (no secrets).
+        s.uri == "/api/family" && s.method == Method.GET ->
+            json(FamilySync.snapshotJson(ctx))
+        // Mirror-all: the hub's whole config bundle (includes feeds + credentials).
+        s.uri == "/api/family/full" && s.method == Method.GET ->
+            newFixedLengthResponse(Response.Status.OK, "text/plain", ConfigBundle.export(ctx))
+        s.uri == "/api/effects" && s.method == Method.GET ->
+            json("{\"enabled\":${store.choreEffects()}}")
+        s.uri == "/api/effects" && s.method == Method.POST -> {
+            store.setChoreEffects(org.json.JSONObject(readBody(s)).getBoolean("enabled"))
+            json("{\"enabled\":${store.choreEffects()}}")
+        }
+        s.uri == "/api/screensaver" && s.method == Method.GET ->
+            json(Screensaver.statusJson(ctx))
+        s.uri == "/api/screensaver" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            if (o.has("mode")) Screensaver.setMode(ctx, o.getString("mode"))
+            if (o.has("yieldMinutes")) Screensaver.setYieldMinutes(ctx, o.getInt("yieldMinutes"))
+            json(Screensaver.statusJson(ctx))
+        }
+        else -> newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found")
+    }
+
+    /**
+     * Reads the raw body as UTF-8. NanoHTTPD's parseBody() decodes bodies
+     * without an explicit charset as Latin-1, which mangles emoji and any
+     * non-ASCII text (chore icons, event titles…).
+     */
+    private fun readBody(s: IHTTPSession): String {
+        val len = s.headers["content-length"]?.toIntOrNull() ?: 0
+        // A bogus/hostile Content-Length would otherwise allocate the whole
+        // claimed size on a 256MB-heap device → OOM → process death.
+        if (len > MAX_BODY) throw BodyTooLarge()
+        if (len <= 0) {
+            val files = HashMap<String, String>()
+            s.parseBody(files)
+            return files["postData"] ?: ""
+        }
+        val buf = ByteArray(len)
+        var read = 0
+        while (read < len) {
+            val n = s.inputStream.read(buf, read, len - read)
+            if (n <= 0) break
+            read += n
+        }
+        return String(buf, 0, read, Charsets.UTF_8)
+    }
+
+    // "routines" defaults off (opt-in tab); the rest default on.
+    private fun featuresJson(): String = org.json.JSONObject()
+        .put("chores", store.featureEnabled("chores"))
+        .put("lists", store.featureEnabled("lists"))
+        .put("meals", store.featureEnabled("meals"))
+        .put("routines", store.featureEnabled("routines", default = false))
+        .toString()
+
+    private fun json(body: String) =
+        newFixedLengthResponse(Response.Status.OK, "application/json", body)
+
+    // org.json handles control characters too (raw \n in an error message
+    // would otherwise produce an unparsable error response).
+    private fun jsonStr(s: String): String = org.json.JSONObject.quote(s)
+
+    companion object {
+        // portal-remote already owns 8080 on this device.
+        const val PORT = 8090
+        // Generous for base64 photos on /api/ai/import, tiny vs the heap.
+        const val MAX_BODY = 16 * 1024 * 1024
+    }
+}

@@ -45,6 +45,7 @@ object MagicWords {
         val payload = m.groupValues[3].trim()
         return when {
             key == "todo" || key == "task" -> Directive("todo", payload)
+            key == "event" || key == "calendar" -> Directive("event", payload)
             fuzzyEquals(key, "grocery") || fuzzyEquals(key, "groceries") ->
                 Directive("groceries", payload)
             key == "chore" || key == "chores" -> Directive("chore", payload)
@@ -71,6 +72,12 @@ object MagicWords {
         match(title)?.let { return it }
         val t = title.trim()
         val lower = t.lowercase(Locale.US)
+
+        Regex("^(?:add|create|remember)\\s+(?:a\\s+)?(?:task|to[- ]do)\\s+(.+)$",
+            RegexOption.IGNORE_CASE).find(t)?.let { return Directive("todo", it.groupValues[1].trim()) }
+
+        Regex("^(?:add|create|schedule)\\s+(?:a\\s+)?(?:calendar\\s+)?event\\s*:?\\s*(.+)$",
+            RegexOption.IGNORE_CASE).find(t)?.let { return Directive("event", it.groupValues[1]) }
 
         Regex("^(?:add|put)\\s+(.+?)\\s+(?:to|on)\\s+(?:the\\s+)?(.+?)(?:\\s+list)?$")
             .find(lower)?.let {
@@ -107,6 +114,9 @@ object MagicWords {
             "todo" -> addToList(ctx, "To-Do", d.payload)
             "groceries" -> addToList(ctx, "Groceries", d.payload)
             "list" -> addToList(ctx, d.listName ?: "To-Do", d.payload)
+            "event" -> {
+                throw IllegalArgumentException("ask whose calendar to use before adding this event")
+            }
             "chore" -> {
                 var title = d.payload
                 var memberId = d.memberId

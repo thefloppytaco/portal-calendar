@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PortalHub</string>
+    <string name="jarvis_tools_summary">Control PortalHub by voice: add tasks, shopping items, chores, routines, meals, and calendar events.</string>
+    <string name="jarvis_tools"><![CDATA[
+[
+  {
+    "name": "com.portal.calendar.family_command",
+    "description": "Send a natural-language command to PortalHub to add or modify calendar events, tasks, shopping/grocery items, chores, routines, meals, or recipes. For calendar events, ask which writable calendar to use if the user did not name one, then pass it in 'calendar'. Preserve names, dates, times, meal slots, lists, and assignees.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The complete requested PortalHub change, retaining names, dates, times, durations, list names, and assignees."
+        },
+        "calendar": {
+          "type": "string",
+          "description": "Writable calendar name for a calendar event. If the user did not specify one, ask them before invoking this tool."
+        }
+      },
+      "required": ["command"]
+    }
+  }
+]
+    ]]></string>
+</resources>

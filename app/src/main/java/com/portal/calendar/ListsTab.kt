@@ -14,6 +14,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.app.AlertDialog
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
@@ -107,6 +108,12 @@ class ListsTab(
             }
         }
         header.addView(clearDoneBtn)
+        header.addView(pill("Undo clear") {
+            selectedId?.let {
+                runCatching { FamilyLists.mutate(ctx, JSONObject().put("action", "undoClearDone").put("listId", it)) }
+            }
+            render()
+        })
         header.addView(pill("Delete list") {
             gate {
                 selectedId?.let {
@@ -136,10 +143,16 @@ class ListsTab(
                 val text = text.toString().trim()
                 val id = selectedId
                 if (text.isNotEmpty() && id != null) {
-                    runCatching {
-                        FamilyLists.mutate(ctx, JSONObject()
-                            .put("action", "addItem").put("listId", id).put("text", text))
-                    }
+                    val listName = runCatching { JSONArray(FamilyLists.json(ctx)).let { a ->
+                        (0 until a.length()).map { a.getJSONObject(it) }.firstOrNull { it.optString("id") == id }?.optString("name") ?: ""
+                    } }.getOrDefault("")
+                    if (listName.equals("Tasks", true)) {
+                        val members = Members.all(ctx)
+                        AlertDialog.Builder(ctx).setTitle("Whose task is this?")
+                            .setItems(members.map { it.name }.toTypedArray()) { _, which ->
+                                runCatching { FamilyLists.mutate(ctx, JSONObject().put("action", "addItem").put("listId", id).put("text", text).put("ownerId", members[which].id)) }
+                            }.show()
+                    } else runCatching { FamilyLists.mutate(ctx, JSONObject().put("action", "addItem").put("listId", id).put("text", text)) }
                     setText("")
                 }
                 true
@@ -153,28 +166,44 @@ class ListsTab(
 
     fun render() {
         val lists = JSONArray(FamilyLists.json(ctx))
-        if (selectedId == null || (0 until lists.length()).none {
-                lists.getJSONObject(it).optString("id") == selectedId
-            }) {
-            selectedId = if (lists.length() > 0) lists.getJSONObject(0).optString("id") else null
+        val visible = (0 until lists.length()).map { lists.getJSONObject(it) }
+            .filter { !it.optBoolean("archived", false) }
+        if (selectedId == null || visible.none { it.optString("id") == selectedId }) {
+            selectedId = visible.firstOrNull()?.optString("id")
         }
 
         rail.removeAllViews()
-        for (i in 0 until lists.length()) {
-            val l = lists.getJSONObject(i)
+        for (l in visible) {
             val id = l.optString("id")
             val items = l.getJSONArray("items")
             val open = (0 until items.length()).count { !items.getJSONObject(it).optBoolean("done") }
             val selected = id == selectedId
-            rail.addView(TextView(ctx).apply {
-                text = l.optString("name") + if (open > 0) "   $open" else ""
+            val listOwner = Members.byId(ctx, l.optString("ownerId"))
+            val entry = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = rounded(if (selected) ACCENT else CARD, 12)
+                setPadding(dp(14), dp(8), dp(10), dp(8))
+                setOnClickListener { selectedId = id; render() }
+            }
+            entry.addView(TextView(ctx).apply {
+                text = l.optString("name") + (if (open > 0) "   $open" else "")
                 textSize = 16f
                 setTextColor(if (selected) Color.WHITE else INK)
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                background = rounded(if (selected) ACCENT else CARD, 12)
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                setOnClickListener { selectedId = id; render() }
-            }, lp(bottom = dp(8)))
+            }, LinearLayout.LayoutParams(0, dp(44), 1f))
+            listOwner?.let { owner ->
+                entry.addView(TextView(ctx).apply {
+                    text = owner.name
+                    textSize = 11f
+                    val r = Color.red(owner.color); val g = Color.green(owner.color); val b = Color.blue(owner.color)
+                    setTextColor(if (0.299 * r + 0.587 * g + 0.114 * b > 160) Color.rgb(16, 24, 32) else Color.WHITE)
+                    gravity = Gravity.CENTER
+                    background = rounded(owner.color, 10)
+                    setPadding(dp(7), dp(3), dp(7), dp(3))
+                }, LinearLayout.LayoutParams(WRAP, dp(26)))
+            }
+            rail.addView(entry, lp(bottom = dp(8)))
         }
 
         itemsBox.removeAllViews()
@@ -192,8 +221,7 @@ class ListsTab(
         clearDoneBtn.visibility = View.VISIBLE
         itemInput.visibility = View.VISIBLE
 
-        val list = (0 until lists.length()).map { lists.getJSONObject(it) }
-            .first { it.optString("id") == selectedId }
+        val list = visible.first { it.optString("id") == selectedId }
         itemsTitle.text = list.optString("name")
         val items = list.getJSONArray("items")
         val sorted = (0 until items.length()).map { items.getJSONObject(it) }
@@ -246,6 +274,35 @@ class ListsTab(
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            item.optString("ownerId").takeIf { it.isNotBlank() }?.let { ownerId ->
+                Members.byId(ctx, ownerId)?.let { owner ->
+                    row.addView(TextView(ctx).apply {
+                        text = owner.name
+                        textSize = 11f
+                        val r = Color.red(owner.color); val g = Color.green(owner.color); val b = Color.blue(owner.color)
+                        setTextColor(if (0.299 * r + 0.587 * g + 0.114 * b > 160) Color.rgb(16, 24, 32) else Color.WHITE)
+                        gravity = Gravity.CENTER
+                        background = rounded(owner.color, 10)
+                        setPadding(dp(8), dp(3), dp(8), dp(3))
+                    }, LinearLayout.LayoutParams(WRAP, dp(26)).apply { leftMargin = dp(6) })
+                }
+            }
+            row.addView(TextView(ctx).apply {
+                text = "✕"
+                textSize = 20f
+                setTextColor(Color.rgb(220, 64, 72))
+                gravity = Gravity.CENTER
+                minimumWidth = dp(44)
+                contentDescription = "Delete ${item.optString("text")}"
+                setOnClickListener {
+                    runCatching {
+                        FamilyLists.mutate(ctx, JSONObject()
+                            .put("action", "deleteItem")
+                            .put("listId", selectedId).put("itemId", item.optString("id")))
+                    }
+                    render()
+                }
+            }, LinearLayout.LayoutParams(WRAP, dp(44)))
             itemsBox.addView(row)
         }
     }

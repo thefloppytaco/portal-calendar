@@ -167,6 +167,23 @@ object Gemini {
         return (0 until arr.length()).map { arr.optString(it) }
     }
 
+    /** Gemini occasionally omits a final brace despite JSON response mode. */
+    private fun parseModelObject(raw: String): JSONObject {
+        var s = raw.trim()
+            .removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+        try { return JSONObject(s) } catch (_: Exception) {
+            // Repair only unambiguous truncation: close an unfinished string,
+            // then balance object/array delimiters. Other malformed responses
+            // still fail with the original parser error.
+            if (s.count { it == '"' } % 2 == 1) s += "\""
+            val opens = s.count { it == '{' } - s.count { it == '}' }
+            val arrays = s.count { it == '[' } - s.count { it == ']' }
+            repeat(arrays.coerceAtLeast(0)) { s += "]" }
+            repeat(opens.coerceAtLeast(0)) { s += "}" }
+            return JSONObject(s)
+        }
+    }
+
     // ------------------------------------------------------- the features
 
     /** Photo/text → proposed events, list items and chores (nothing applied). */
@@ -176,25 +193,34 @@ object Gemini {
         val prompt = """
             You help run a family calendar board. Today is $today.
             Family members: $members.
+            Writable calendars: ${Writers.calendars(ctx).joinToString(", ") { it.name }}.
             Read the provided content (text and/or an image of a flyer, schedule,
             email or list) and extract actionable items for the family.
             Respond with STRICT JSON only, exactly this shape:
             {"events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM" or null,
-              "durationMins":number,"allDay":boolean}],
+              "durationMins":number,"allDay":boolean,"calendarOwner":string}],
              "listItems":[{"list":string,"text":string}],
-             "chores":[{"title":string,"member":string or "","date":"YYYY-MM-DD"}]}
+             "chores":[{"title":string,"member":string or "","date":"YYYY-MM-DD"}],
+             "routines":[{"title":string,"member":string or "","date":"YYYY-MM-DD" or null,"section":"morning" or "afternoon" or "evening" or "anytime"}],
+             "meals":[{"dish":string,"date":"YYYY-MM-DD","slot":"breakfast" or "lunch" or "dinner" or "snack","addGroceries":boolean}]}
             Rules: only include things clearly present; resolve relative dates
             against today; use "Groceries" or "To-Do" for list names unless
             another list is obvious; assign a chore's member only when a family
-            member is clearly meant. Use empty arrays when nothing fits.
+            member is clearly meant. Calendar events use the named calendar owner
+            when supplied; never infer an owner or choose a literal calendar name;
+            the board is a merged display,
+            not a local calendar.
+            Use empty arrays when nothing fits.
             ${if (text.isNullOrBlank()) "" else "Content:\n$text"}
         """.trimIndent()
         val raw = generate(ctx, prompt, imageB64, mime)
-        val parsed = JSONObject(raw) // throws if the model ignored JSON mode
+        val parsed = parseModelObject(raw)
         return JSONObject()
             .put("events", parsed.optJSONArray("events") ?: JSONArray())
             .put("listItems", parsed.optJSONArray("listItems") ?: JSONArray())
             .put("chores", parsed.optJSONArray("chores") ?: JSONArray())
+            .put("routines", parsed.optJSONArray("routines") ?: JSONArray())
+            .put("meals", parsed.optJSONArray("meals") ?: JSONArray())
             .toString()
     }
 
@@ -220,22 +246,26 @@ object Gemini {
              "reply":string (ONE short friendly sentence confirming what you did,
                              or answering if it was just a question),
              "events":[{"title":string,"date":"YYYY-MM-DD","time":"HH:MM" or null,
-               "durationMins":number,"allDay":boolean}],
+               "durationMins":number,"allDay":boolean,"calendarOwner":string}],
              "listItems":[{"list":string,"text":string}],
-             "chores":[{"title":string,"member":string or "","date":"YYYY-MM-DD"}]}
+             "chores":[{"title":string,"member":string or "","date":"YYYY-MM-DD"}],
+             "routines":[{"title":string,"member":string or "","date":"YYYY-MM-DD" or null,"section":string}],
+             "meals":[{"dish":string,"date":"YYYY-MM-DD","slot":string,"addGroceries":boolean}]}
             Resolve relative dates/times ("tomorrow at 3", "Friday") against now.
             Buying/getting food or supplies → a listItem on "Groceries". Telling a
             member to do something → a chore. A scheduled thing → an event. If the
             audio is empty or unintelligible, set transcript to "" and arrays empty.
         """.trimIndent()
         val raw = generate(ctx, prompt, wavB64, "audio/wav")
-        val o = JSONObject(raw)
+        val o = parseModelObject(raw)
         return JSONObject()
             .put("transcript", o.optString("transcript"))
             .put("reply", o.optString("reply"))
             .put("events", o.optJSONArray("events") ?: JSONArray())
             .put("listItems", o.optJSONArray("listItems") ?: JSONArray())
             .put("chores", o.optJSONArray("chores") ?: JSONArray())
+            .put("routines", o.optJSONArray("routines") ?: JSONArray())
+            .put("meals", o.optJSONArray("meals") ?: JSONArray())
     }
 
     /**
@@ -265,7 +295,7 @@ object Gemini {
             A command about buying/getting food or supplies is a "list" for Groceries.
             A command telling a member to do something is a "chore".
         """.trimIndent()
-        val o = JSONObject(generate(ctx, prompt, null, null))
+        val o = parseModelObject(generate(ctx, prompt, null, null))
         val text = o.optString("text").trim().ifEmpty { title }
         return when (o.optString("kind")) {
             "chore" -> {
@@ -289,6 +319,10 @@ object Gemini {
             for (i in 0 until evs.length()) {
                 val ev = evs.getJSONObject(i)
                 try {
+                    val owner = ev.optString("calendarOwner").trim()
+                    if (owner.isEmpty()) throw IllegalArgumentException("ask whose calendar to use before adding this event")
+                    if (!Writers.setTargetForOwner(ctx, owner))
+                        throw IllegalArgumentException("no connected writable calendar is configured for $owner")
                     val time = ev.optString("time").takeIf { it.isNotEmpty() && it != "null" }
                     val allDay = ev.optBoolean("allDay", false) || time == null
                     val (s, e) = CalDav.eventWindow(ev.getString("date"), time,
@@ -332,6 +366,45 @@ object Gemini {
                     applied++
                 } catch (ex: Exception) {
                     errors.put("chore \"${c.optString("title")}\": ${ex.message}")
+                }
+            }
+        }
+        o.optJSONArray("routines")?.let { routines ->
+            for (i in 0 until routines.length()) {
+                val r = routines.getJSONObject(i)
+                try {
+                    val memberId = Members.all(ctx).firstOrNull {
+                        MagicWords.fuzzyEquals(it.name.lowercase(Locale.US),
+                            r.optString("member").lowercase(Locale.US))
+                    }?.id ?: ""
+                    val action = JSONObject().put("action", "addItem")
+                        .put("title", r.getString("title"))
+                        .put("memberId", memberId)
+                        .put("section", r.optString("section").ifEmpty { "morning" })
+                        .put("icon", "✅")
+                    val date = r.optString("date").takeIf { it.isNotBlank() && it != "null" }
+                    if (date != null) action.put("oneTime", true).put("date", date)
+                    Routines.mutate(ctx, action)
+                    applied++
+                } catch (ex: Exception) {
+                    errors.put("routine \"${r.optString("title")}\": ${ex.message}")
+                }
+            }
+        }
+        o.optJSONArray("meals")?.let { meals ->
+            for (i in 0 until meals.length()) {
+                val m = meals.getJSONObject(i)
+                try {
+                    val date = m.optString("date").ifEmpty {
+                        SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                    }
+                    val slot = m.optString("slot").ifEmpty { "dinner" }
+                    val dish = m.optString("dish").ifEmpty { m.optString("title") }
+                    if (dish.isBlank()) throw IllegalArgumentException("the meal needs a name")
+                    planMeal(ctx, dish, date, slot, m.optBoolean("addGroceries", true))
+                    applied++
+                } catch (ex: Exception) {
+                    errors.put("meal \"${m.optString("dish")}\": ${ex.message}")
                 }
             }
         }
@@ -395,7 +468,7 @@ object Gemini {
             "steps":string (numbered steps, one per line)}.
             Keep it practical — common ingredients, under 12 steps.
         """.trimIndent()
-        val parsed = JSONObject(generate(ctx, prompt, null, null))
+        val parsed = parseModelObject(generate(ctx, prompt, null, null))
         return JSONObject()
             .put("title", parsed.optString("title", dish))
             .put("ingredients", parsed.optString("ingredients"))

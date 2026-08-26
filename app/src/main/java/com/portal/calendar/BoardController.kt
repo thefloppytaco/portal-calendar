@@ -111,6 +111,9 @@ class BoardController(private val baseCtx: Context) {
     private lateinit var detailTitle: TextView
     private lateinit var detailBody: TextView
     private lateinit var detailDeleteBtn: TextView
+    private lateinit var detailGroceryBtn: TextView
+    private var detailIngredients: String? = null
+    private var detailRecipeId: String? = null
     private var detailEvent: EventInstance? = null
     private lateinit var dayOverlay: FrameLayout
     private lateinit var dayTitle: TextView
@@ -141,6 +144,7 @@ class BoardController(private val baseCtx: Context) {
     private lateinit var voiceSub: TextView
     private lateinit var voiceBtn: TextView
     private val voice = VoiceInput()
+    private val speech = SpeechOutput(baseCtx)
     private val voiceExec = java.util.concurrent.Executors.newSingleThreadExecutor()
     @Volatile private var voiceBusy = false
 
@@ -286,7 +290,7 @@ class BoardController(private val baseCtx: Context) {
         App.instance.removeConfigListener(configListener)
         App.instance.removeDataListener(dataListener)
         if (App.instance.activeBoard === this) App.instance.activeBoard = null
-        runCatching { voice.stop(); voiceExec.shutdownNow() }
+        runCatching { voice.stop(); speech.shutdown(); voiceExec.shutdownNow() }
     }
 
     /** Returns true if an overlay was open and got closed (for Back handling). */
@@ -376,6 +380,7 @@ class BoardController(private val baseCtx: Context) {
                     App.instance.notifyDataChanged()
                     doSync() // surface a new event/item on the board right away
                     finishVoice("“$transcript”", reply)
+                    speech.speak(reply)
                 }
             } catch (e: Exception) {
                 post { finishVoice("Sorry — that didn't work", e.message ?: "Try again.") }
@@ -1605,9 +1610,14 @@ class BoardController(private val baseCtx: Context) {
             },
             onCelebrate = { anchor, goalReached -> celebrateAt(anchor, goalReached) })
         area.addView(choresTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
-        mealsTab = MealsTab(ctx, { title, body ->
+        mealsTab = MealsTab(ctx, { title, body, ingredients, recipeId ->
             detailTitle.text = title
             detailBody.text = body
+            detailIngredients = ingredients
+            detailRecipeId = recipeId
+            detailDeleteBtn.text = "🗑 Remove recipe"
+            detailDeleteBtn.visibility = if (recipeId != null) View.VISIBLE else View.GONE
+            detailGroceryBtn.visibility = if (ingredients.isNullOrBlank()) View.GONE else View.VISIBLE
             detailOverlay.visibility = View.VISIBLE
         }, onPlanMeal = { requirePin { showMealAiOverlay() } })
         area.addView(mealsTab.view, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -2183,10 +2193,9 @@ class BoardController(private val baseCtx: Context) {
         addBusy = false
         addTitleInput.setText("")
         addMsg.text = ""
-        val target = Writers.target(ctx)
-        addCalIndex = Writers.calendars(ctx).indexOfFirst {
-            target != null && it.kind == target.kind && it.id == target.id
-        }.coerceAtLeast(0)
+        // Never silently inherit a calendar. The user must choose one for
+        // each event, matching Jarvis's owner-required behavior.
+        addCalIndex = -1
         refreshAddLabels()
         addOverlay.visibility = View.VISIBLE
         addTitleInput.requestFocus()
@@ -2214,7 +2223,7 @@ class BoardController(private val baseCtx: Context) {
             addCalButton.text = "none connected"
             addMsg.text = "Connect iCloud or Google on the setup page (⚙) first"
         } else {
-            addCalButton.text = cals[addCalIndex.coerceIn(cals.indices)].name
+            addCalButton.text = if (addCalIndex in cals.indices) cals[addCalIndex].name else "Choose calendar owner"
         }
     }
 
@@ -2224,7 +2233,11 @@ class BoardController(private val baseCtx: Context) {
         if (title.isEmpty()) { addMsg.text = "Give it a name"; return }
         val cals = Writers.calendars(ctx)
         if (cals.isEmpty()) { addMsg.text = "Connect iCloud or Google on the setup page (⚙) first"; return }
-        val cal = cals[addCalIndex.coerceIn(cals.indices)]
+        if (addCalIndex !in cals.indices) {
+            addMsg.text = "Choose the calendar owner's calendar first"
+            return
+        }
+        val cal = cals[addCalIndex]
 
         val startCal = addDate.clone() as Calendar
         val start: Long
@@ -2299,15 +2312,32 @@ class BoardController(private val baseCtx: Context) {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
         }
-        detailDeleteBtn = navButton("🗑 Remove") { requirePin { deleteCurrentEvent() } }.apply {
+        detailDeleteBtn = navButton("🗑 Remove") { requirePin { deleteDetailRecipeOrEvent() } }.apply {
             setTextColor(0xFFE0556A.toInt())
         }
+        detailGroceryBtn = navButton("🛒 Add ingredients") {
+            val ingredients = detailIngredients ?: return@navButton
+            runCatching { FamilyLists.addRecipeIngredients(ctx, ingredients) }
+            detailGroceryBtn.text = "✓ Added to Groceries"
+        }.apply { visibility = View.GONE; setTextColor(0xFF2BB3A3.toInt()) }
+        btnRow.addView(detailGroceryBtn)
+        btnRow.addView(spacer(dp(8)))
         btnRow.addView(detailDeleteBtn)
         btnRow.addView(spacer(dp(8)))
         btnRow.addView(navButton("Close") { detailOverlay.visibility = View.GONE })
         card.addView(btnRow, lpMatchWrap(top = dp(14)))
         scrim.addView(card, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         return scrim
+    }
+
+    private fun deleteDetailRecipeOrEvent() {
+        val recipeId = detailRecipeId
+        if (recipeId != null) {
+            runCatching { Meals.mutate(ctx, org.json.JSONObject().put("action", "deleteRecipe").put("recipeId", recipeId)) }
+            detailRecipeId = null
+            detailIngredients = null
+            detailOverlay.visibility = View.GONE
+        } else deleteCurrentEvent()
     }
 
     /** Deletes the event being viewed from its calendar (syncs back). */
@@ -2351,6 +2381,10 @@ class BoardController(private val baseCtx: Context) {
 
     private fun showDetails(ev: EventInstance) {
         detailEvent = ev
+        detailRecipeId = null
+        detailIngredients = null
+        detailDeleteBtn.text = "🗑 Remove"
+        detailGroceryBtn.visibility = View.GONE
         // Removable only when it carries a UID and an account that holds it is
         // connected for two-way sync — otherwise the delete couldn't propagate.
         val canDelete = ev.uid.isNotEmpty() &&

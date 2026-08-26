@@ -42,6 +42,24 @@
             android:name=".KeepAliveService"
             android:exported="false" />
 
+        <service
+            android:name=".PortalHubCommandJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <provider
+            android:name=".PortalHubToolProvider"
+            android:authorities="com.portal.calendar.tools"
+            android:exported="true"
+            android:grantUriPermissions="false">
+            <meta-data
+                android:name="com.portal.assistant.tools"
+                android:value="@string/jarvis_tools" />
+            <meta-data
+                android:name="com.portal.assistant.tools.summary"
+                android:value="@string/jarvis_tools_summary" />
+        </provider>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

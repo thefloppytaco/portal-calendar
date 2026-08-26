@@ -29,7 +29,15 @@ class App : Application() {
     lateinit var store: ConfigStore
     lateinit var sync: SyncManager
     private var server: ConfigServer? = null
+    private var familyHubServer: FamilyHubDownloadServer? = null
     private val main = Handler(Looper.getMainLooper())
+    private val syncLoop = object : Runnable {
+        override fun run() {
+            if (SyncSettings.googleTasksEnabled(this@App) ||
+                SyncSettings.googleGroceriesEnabled(this@App)) kickTasksSync(0)
+            main.postDelayed(this, SyncSettings.intervalMs(this@App))
+        }
+    }
     private val configListeners = CopyOnWriteArraySet<() -> Unit>()
 
     /** The board currently on screen, if any — used for live scale preview. */
@@ -53,6 +61,8 @@ class App : Application() {
         } catch (_: Exception) {
             // Port busy (stale process) — the page just won't load until relaunch.
         }
+        familyHubServer = FamilyHubDownloadServer(this)
+        runCatching { familyHubServer?.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, true) }
         registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(c: Context, intent: Intent) {
                 onDreamEvent(intent.action ?: return)
@@ -64,6 +74,7 @@ class App : Application() {
         })
         if (Screensaver.isEnabled(this)) KeepAliveService.start(this)
         FamilySync.applyRole(this) // hub advertises / spoke discovers + polls
+        main.postDelayed(syncLoop, SyncSettings.intervalMs(this))
     }
 
     fun addConfigListener(l: () -> Unit) = configListeners.add(l)
@@ -80,6 +91,11 @@ class App : Application() {
     fun kickTasksSync(delayMs: Long = 2500) {
         main.removeCallbacks(tasksSyncRunnable)
         main.postDelayed(tasksSyncRunnable, delayMs)
+    }
+
+    fun restartSyncLoop() {
+        main.removeCallbacks(syncLoop)
+        main.postDelayed(syncLoop, SyncSettings.intervalMs(this))
     }
 
     /** Local family data changed (lists/chores/meals/members) — cheaper than a feed re-sync. */

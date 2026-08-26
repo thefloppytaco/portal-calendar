@@ -112,6 +112,19 @@
     <button data-tabbtn="meals" class="ghost" onclick="showTab('meals')" style="flex:1;">Meals</button>
     <button data-tabbtn="family" class="ghost" onclick="showTab('family')" style="flex:1;">Family</button>
     <button data-tabbtn="settings" class="ghost" onclick="showTab('settings')" style="flex:1;">Settings</button>
+    <button data-tabbtn="health" class="ghost" onclick="showTab('health')" style="flex:1;">Health</button>
+  </div>
+
+  <div class="card" data-tab="health">
+    <strong>System Health</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 12px;">Safe diagnostics for PortalHub and the services it depends on. Secrets are never shown.</div>
+    <div id="healthBox" style="display:grid;gap:8px;"></div>
+    <div class="btnrow" style="margin-top:12px;">
+      <button onclick="loadHealth()">Refresh health</button>
+      <button class="ghost" onclick="healthAction('sync')">Run sync now</button>
+      <button class="ghost" onclick="healthAction('reassert')">Bring PortalHub forward</button>
+    </div>
+    <div id="healthMsg" class="msgline"></div>
   </div>
 
   <div class="card" data-tab="chores">
@@ -181,6 +194,14 @@
       <button style="width:100%;" onclick="addRoutine()">Add item</button>
     </div>
     <div id="routineMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="chores">
+    <strong>Completion history</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 10px;">Open the searchable database view to review or correct missed check-offs.</div>
+    <a class="button" href="/history.html" style="display:block;text-align:center;text-decoration:none;">View history for Routines</a>
+    <div id="historyBox" style="display:none;"></div>
+    <div id="historyMsg" class="msgline"></div>
   </div>
 
   <div class="card" data-tab="lists">
@@ -279,8 +300,8 @@
           </select>
         </div>
       </div>
-      <label for="evCal">Calendar</label>
-      <select id="evCal" onchange="pickTarget()"></select>
+      <label for="evOwner">Whose calendar?</label>
+      <select id="evOwner"><option value="">Choose an owner</option></select>
       <button style="width:100%;" onclick="addEvent()">Add to calendar</button>
       <div id="evMsg" class="msgline"></div>
     </div>
@@ -401,6 +422,15 @@
   </div>
 
   <div class="card" data-tab="settings">
+    <strong>Parent approvals (Gotify)</strong>
+    <div style="font-size:13px;color:#737983;margin:6px 0 8px;">Send routine and reward approvals to Juanita over the private Tailscale network.</div>
+    <input type="url" id="gotifyUrl" placeholder="http://portal-tailnet-name:8090" autocomplete="off">
+    <input type="password" id="gotifyToken" placeholder="Gotify application token (write-only)" autocomplete="off">
+    <div class="row2"><button class="ghost" onclick="saveGotify()">Save</button><button class="ghost" onclick="testGotify()">Send test</button></div>
+    <div id="gotifyMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
     <strong>Board tabs</strong>
     <div style="font-size:13px;color:#737983;margin:6px 0 10px;">Switch off what your family doesn't use — the tab disappears from the Portal.</div>
     <div id="featRow" style="display:flex;flex-direction:column;gap:10px;">
@@ -495,6 +525,15 @@
   </div>
 
   <div class="card" data-tab="settings">
+    <strong>FamilyHub Shopping app</strong>
+    <p style="font-size:13px;color:#737983;margin:6px 0 10px;">Install the Android companion app to add or remove items from the shared Groceries list by voice. Use the local link on home Wi‑Fi; use the Tailscale link when away from home.</p>
+    <div class="row2">
+      <a class="ghost" href="http://192.168.0.130:8765/" target="_blank" rel="noopener" style="text-align:center;text-decoration:none;">Download on home Wi‑Fi</a>
+      <a class="ghost" href="http://100.85.164.42:8765/" target="_blank" rel="noopener" style="text-align:center;text-decoration:none;">Download via Tailscale</a>
+    </div>
+  </div>
+
+  <div class="card" data-tab="settings">
     <strong>Two-way sync</strong>
     <p style="font-size:13px;color:#737983;margin:6px 0 10px;">Connect an account so events can be added from this page. Events are created in the real calendar, so they sync to everyone's devices.</p>
 
@@ -513,13 +552,13 @@
     </div>
     <div id="icMsg" class="msgline"></div>
 
-    <div style="font-weight:600;margin-top:12px;border-top:1px solid #efece4;padding-top:14px;">Google Calendar</div>
+    <div style="font-weight:600;margin-top:12px;border-top:1px solid #efece4;padding-top:14px;">Google account (Calendar + Tasks)</div>
     <div id="gDisconnected" style="display:none;">
       <details style="margin:6px 0 10px;">
         <summary style="font-size:14px;">One-time Google Cloud setup (~5 min)</summary>
         <ol>
           <li>Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a> and create a project.</li>
-          <li>APIs &amp; Services → Library → enable the <strong>Google Calendar API</strong>.</li>
+          <li>APIs &amp; Services → Library → enable the <strong>Google Calendar API</strong> and <strong>Google Tasks API</strong>.</li>
           <li>OAuth consent screen → External → fill the required fields → <strong>Publish app</strong> (production — the "unverified app" warning at sign-in is expected for a personal project; in Testing mode the connection would expire weekly).</li>
           <li>Credentials → Create credentials → OAuth client ID → type <strong>Desktop app</strong>. Copy the Client ID and Client secret below.</li>
         </ol>
@@ -528,7 +567,8 @@
       <input type="text" id="gId" placeholder="….apps.googleusercontent.com" autocomplete="off">
       <label for="gSecret">Client secret</label>
       <input type="text" id="gSecret" autocomplete="off">
-      <button class="ghost" style="width:100%;" onclick="googleBegin()">Get sign-in link</button>
+      <div style="font-size:13px;color:#737983;margin:8px 0;">This signs in the Google account that owns the shared lists. It uses OAuth — never enter your Gmail password here.</div>
+      <button class="ghost" style="width:100%;" onclick="googleBegin()">Get Google sign-in link</button>
       <div id="gStep2" style="display:none;">
         <div style="font-size:14px;margin:12px 0 4px;">1. <a id="gAuthLink" href="#" target="_blank" rel="noopener"><strong>Sign in with Google</strong></a> as the calendar's owner and allow access.</div>
         <div style="font-size:13px;color:#737983;margin-bottom:6px;">2. You'll land on a "site can't be reached" <code>localhost</code> page — copy that page's <em>full address</em> from the address bar and paste it here:</div>
@@ -539,8 +579,31 @@
     <div id="gConnected" style="display:none;font-size:14px;margin:8px 0;">
       Connected as <strong id="gWho"></strong>
       <button class="ghost" style="padding:6px 12px;margin-left:8px;" onclick="disconnectGoogle()">Disconnect</button>
+      <button class="ghost" style="padding:6px 12px;margin-left:8px;" onclick="showGoogleConnect()">Add another account</button>
     </div>
+    <div id="gProfiles" style="display:none;margin:8px 0;font-size:13px;"></div>
     <div id="gMsg" class="msgline"></div>
+  </div>
+
+  <div class="card" data-tab="settings">
+    <strong>Account sync controls</strong>
+    <p style="font-size:13px;color:#737983;margin:6px 0 10px;">Choose separately what each connected account may sync. Calendar feeds already added above remain independent; these switches control Portal write/list synchronization.</p>
+    <div style="border:1px solid #e7e2d8;border-radius:10px;padding:10px;margin-bottom:10px;">
+      <div style="font-weight:600;">Google account <span id="syncGoogleAccount" style="font-weight:400;color:#737983;">(checking…)</span></div>
+      <label><input type="checkbox" id="syncGoogleCalendar"> Calendar events</label>
+      <label><input type="checkbox" id="syncGoogleGroceries"> Groceries / shopping list</label>
+      <label><input type="checkbox" id="syncGoogleTasks"> Other task lists</label>
+    </div>
+    <div style="border:1px solid #e7e2d8;border-radius:10px;padding:10px;margin-bottom:10px;">
+      <div style="font-weight:600;">Apple / iCloud <span id="syncAppleAccount" style="font-weight:400;color:#737983;">(checking…)</span></div>
+      <label><input type="checkbox" id="syncAppleCalendar"> Calendar events</label>
+      <div style="font-size:12px;color:#737983;margin-top:4px;">Apple list synchronization is not enabled yet; iCloud calendar access remains separate from Google Tasks.</div>
+    </div>
+    <label for="syncInterval">Sync interval (seconds)</label>
+    <input type="number" id="syncInterval" min="5" max="3600" value="5">
+    <div style="font-size:13px;color:#737983;margin-top:8px;">Multiple account profiles can be recorded here for staged setup; each account still requires its own OAuth or app-specific-password authorization.</div>
+    <button class="ghost" style="width:100%;margin-top:8px;" onclick="saveSyncSettings()">Save sync settings</button>
+    <div id="syncSettingsMsg" class="msgline"></div>
   </div>
 
   <div class="btnrow" data-tab="settings">
@@ -776,6 +839,37 @@ async function loadSync(){
   catch(e){ /* page still usable without it */ }
 }
 
+async function loadSyncSettings(){
+  try {
+    const st = await (await fetch('/api/sync/settings')).json();
+    document.getElementById('syncGoogleCalendar').checked = st.googleCalendarEnabled !== false;
+    document.getElementById('syncGoogleGroceries').checked = st.googleGroceriesEnabled !== false;
+    document.getElementById('syncGoogleTasks').checked = st.googleTasksEnabled !== false;
+    document.getElementById('syncAppleCalendar').checked = st.appleEnabled !== false;
+    document.getElementById('syncInterval').value = st.intervalSeconds;
+    const w = await (await fetch('/api/writers')).json();
+    document.getElementById('syncGoogleAccount').textContent = w.google && w.google.connected ? '— connected' : '— not connected';
+    document.getElementById('syncAppleAccount').textContent = w.icloud && w.icloud.connected ? '— connected' : '— not connected';
+  } catch(e) { show('syncSettingsMsg', e.message, false); }
+}
+
+async function saveSyncSettings(){
+  try {
+    const r = await fetch('/api/sync/settings', {method:'POST', body: JSON.stringify({
+      googleCalendarEnabled: document.getElementById('syncGoogleCalendar').checked,
+      googleGroceriesEnabled: document.getElementById('syncGoogleGroceries').checked,
+      googleTasksEnabled: document.getElementById('syncGoogleTasks').checked,
+      googleEnabled: document.getElementById('syncGoogleTasks').checked,
+      appleEnabled: document.getElementById('syncAppleCalendar').checked,
+      intervalSeconds: Number(document.getElementById('syncInterval').value || 5)
+    })});
+    const st = await r.json();
+    if (!r.ok) throw new Error(st.error || 'failed');
+    document.getElementById('syncInterval').value = st.intervalSeconds;
+    show('syncSettingsMsg', '✓ Sync settings saved', true);
+  } catch(e) { show('syncSettingsMsg', e.message, false); }
+}
+
 async function saveSync(){
   const role = document.querySelector('input[name=syncRole]:checked');
   const body = { manualHub: document.getElementById('syncHub').value,
@@ -806,17 +900,15 @@ function applyWriters(st){
   document.getElementById('gDisconnected').style.display = st.google.connected ? 'none' : 'block';
   document.getElementById('gConnected').style.display = st.google.connected ? 'block' : 'none';
   if (st.google.connected) document.getElementById('gWho').textContent = st.google.email || 'Google account';
+  loadGoogleProfiles();
 
-  const any = st.calendars.length > 0;
+  const owners = st.ownerTargets || [];
+  const any = owners.length > 0;
   document.getElementById('eventOff').style.display = any ? 'none' : 'block';
   document.getElementById('eventForm').style.display = any ? 'block' : 'none';
   if (any) {
-    const sel = document.getElementById('evCal');
-    sel.innerHTML = st.calendars.map(c => {
-      const v = c.kind + '|' + c.id;
-      const cur = st.target && st.target.kind === c.kind && st.target.id === c.id;
-      return `<option value="${esc(v)}"${cur ? ' selected' : ''}>${esc(c.name)}</option>`;
-    }).join('');
+    document.getElementById('evOwner').innerHTML = '<option value="">Choose an owner</option>' +
+      owners.map(o => `<option value="${esc(o.owner)}">${esc(o.owner)} — ${esc(o.account)}</option>`).join('');
     const d = document.getElementById('evDate');
     if (!d.value) {
       const now = new Date();
@@ -827,6 +919,30 @@ function applyWriters(st){
 
 async function loadWriters(){
   try { applyWriters(await (await fetch('/api/writers')).json()); } catch(e){}
+}
+
+async function loadGoogleProfiles(){
+  try {
+    const r = await fetch('/api/google/accounts');
+    const body = await r.json();
+    const rows = body.accounts || [];
+    const box = document.getElementById('gProfiles');
+    if (!rows.length) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    box.innerHTML = '<div style="font-weight:600;margin-bottom:4px;">Authorized Google accounts</div>' +
+      rows.map(a => `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;"><span>${esc(a.email || a.id)}</span>${a.active ? '<span style="color:#278447;">(active)</span>' : `<button class="ghost" style="padding:3px 8px;" onclick="activateGoogle('${esc(a.id)}')">Use this account</button>`}</div>`).join('');
+  } catch(e) {}
+}
+
+function showGoogleConnect(){ document.getElementById('gDisconnected').style.display = 'block'; }
+
+async function activateGoogle(id){
+  try {
+    const r = await fetch('/api/google/activate', {method:'POST', body: JSON.stringify({id})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'failed');
+    applyWriters(body); show('gMsg', '✓ Active Google account changed', true);
+  } catch(e){ show('gMsg', e.message, false); }
 }
 
 async function connectIcloud(){
@@ -881,18 +997,6 @@ async function disconnectGoogle(){
   loadWriters();
 }
 
-async function pickTarget(){
-  const v = document.getElementById('evCal').value;
-  const i = v.indexOf('|');
-  try {
-    const r = await fetch('/api/target', {method:'POST',
-      body: JSON.stringify({kind: v.slice(0, i), id: v.slice(i + 1)})});
-    const body = await r.json();
-    if (!r.ok) throw new Error(body.error || 'failed');
-    applyWriters(body);
-  } catch(e){ show('evMsg', e.message, false); }
-}
-
 function toggleAllDay(){
   document.getElementById('evTimeRow').style.display =
     document.getElementById('evAllDay').checked ? 'none' : 'flex';
@@ -904,12 +1008,14 @@ async function addEvent(){
   const allDay = document.getElementById('evAllDay').checked;
   const time = document.getElementById('evTime').value || '12:00';
   const durationMins = parseInt(document.getElementById('evDur').value, 10);
+  const calendarOwner = document.getElementById('evOwner').value;
   if (!title) return show('evMsg', 'Give the event a name', false);
   if (!date) return show('evMsg', 'Pick a date', false);
+  if (!calendarOwner) return show('evMsg', 'Choose whose calendar this belongs to', false);
   show('evMsg', 'Adding to the calendar…', true);
   try {
     const r = await fetch('/api/event', {method:'POST',
-      body: JSON.stringify({title, date, time, durationMins, allDay})});
+      body: JSON.stringify({title, date, time, durationMins, allDay, calendarOwner})});
     const body = await r.json();
     if (!r.ok) throw new Error(body.error || 'failed');
     document.getElementById('evTitle').value = '';
@@ -964,9 +1070,41 @@ function showTab(name){
     b.className = b.dataset.tabbtn === name ? '' : 'ghost');
   if (name === 'lists') loadListsP();
   if (name === 'family') loadMembers();
-  if (name === 'chores') loadChores();
+  if (name === 'chores') { loadChores(); loadHistory(); }
   if (name === 'routines') loadRoutines();
   if (name === 'meals') loadMeals();
+  if (name === 'health') loadHealth();
+}
+
+function healthRow(label, value, ok=true){
+  const color = ok ? '#2f9e44' : '#d94841';
+  return `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #e7e2d8;border-radius:10px;padding:10px 12px;">
+    <span>${esc(label)}</span><strong style="color:${color};text-align:right;">${esc(String(value))}</strong></div>`;
+}
+async function loadHealth(){
+  try {
+    const h = await (await fetch('/api/health')).json();
+    const s = h.storage || {};
+    const pct = Number(s.freePercent || 0).toFixed(1) + '% free';
+    document.getElementById('healthBox').innerHTML = [
+      healthRow('PortalHub', `${h.portalHub?.version || 'unknown'} (${h.portalHub?.versionCode || '?'})`),
+      healthRow('Storage', `${pct} · ${Math.round((s.freeBytes || 0)/1048576)} MB free`, Number(s.freePercent || 0) > 5),
+      healthRow('Google Calendar', h.googleCalendar ? `Connected · ${h.googleAccounts || 1} account(s)` : 'Not connected', !!h.googleCalendar),
+      healthRow('Gotify', h.gotify ? 'Configured' : 'Not configured', !!h.gotify),
+      healthRow('Tailscale app', h.tailscaleInstalled ? 'Installed' : 'Not detected', !!h.tailscaleInstalled),
+      healthRow('Wireless ADB', h.adbWireless, true)
+    ].join('');
+    show('healthMsg', '✓ Health refreshed', true);
+  } catch(e) { show('healthMsg', e.message, false); }
+}
+async function healthAction(action){
+  try {
+    const r = await fetch('/api/health/action', {method:'POST', body: JSON.stringify({action})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'Action failed');
+    show('healthMsg', '✓ ' + (body.message || 'Done'), true);
+    if (action === 'sync') setTimeout(loadHealth, 800);
+  } catch(e) { show('healthMsg', e.message, false); }
 }
 
 // ----- shared lists -----
@@ -1308,6 +1446,44 @@ function addRoutine(){
   show('routineMsg', '✓ Added', true);
 }
 
+// ----- completion history / parent corrections -----
+let historyState = null;
+function historyDate(offset){
+  const d = new Date(); d.setDate(d.getDate() - offset);
+  return d.toISOString().slice(0,10);
+}
+async function loadHistory(){
+  try { historyState = await (await fetch('/api/history')).json(); renderHistory(); }
+  catch(e){ show('historyMsg', e.message, false); }
+}
+function renderHistory(){
+  const box = document.getElementById('historyBox'); if (!historyState) return;
+  const rows = [];
+  const done = (kind, id, date) => {
+    const a = historyState[kind].completed || [];
+    return a.some(x => (x.choreId || x.itemId) === id && x.date === date);
+  };
+  for (let days = 0; days < 14; days++) {
+    const date = historyDate(days);
+    for (const [kind, key, label] of [['chores','chores','Chore'],['routines','items','Routine']]) {
+      (historyState[kind][key] || []).forEach(item => {
+        const id = item.id; const title = item.title || item.name || label;
+        const checked = done(kind, id, date);
+        rows.push(`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #efece4;">
+          <input type="checkbox" ${checked ? 'checked' : ''} onchange="setHistory('${kind === 'chores' ? 'chore' : 'routine'}','${esc(id)}','${date}',this.checked)">
+          <span style="min-width:90px;font-size:12px;color:#737983;">${date}</span><span>${esc(title)}</span></label>`);
+      });
+    }
+  }
+  box.innerHTML = rows.join('') || '<div class="empty">No chores or routine items yet</div>';
+}
+async function setHistory(kind, typeId, date, completed){
+  const body = kind === 'chore' ? {kind, action:'setCompletion', choreId:typeId, date, completed}
+    : {kind, action:'setCompletion', itemId:typeId, date, completed};
+  try { await fetch('/api/history', {method:'POST', body:JSON.stringify(body)}); await loadHistory(); show('historyMsg','✓ Saved',true); }
+  catch(e){ show('historyMsg', e.message, false); }
+}
+
 // ----- meals -----
 const SLOTS = [['breakfast','🍳'],['lunch','🥪'],['dinner','🍝'],['snack','🍎']];
 let mealState = {plan:[], recipes:[]};
@@ -1333,8 +1509,10 @@ function renderMeals(){
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
           <span style="width:26px;text-align:center;">${emoji}</span>
           <input type="text" value="${esc(mealText(date, slot))}" list="recipeNames" autocomplete="off"
-                 placeholder="${slot}" style="margin:0;padding:8px 12px;"
+                 placeholder="${slot}" style="margin:0;padding:8px 12px;flex:1;"
                  onchange="setMeal('${date}','${slot}',this.value)">
+          <button type="button" class="del" title="Remove ${slot}" aria-label="Remove ${slot}"
+                  onclick="event.preventDefault();event.stopPropagation();clearMeal('${date}','${slot}')">✕</button>
         </div>`).join('')}
     </div>`;
   }).join('') + `<datalist id="recipeNames">${mealState.recipes.map(r => `<option value="${esc(r.title)}">`).join('')}</datalist>`;
@@ -1343,7 +1521,7 @@ function renderMeals(){
     <details style="border-bottom:1px solid #efece4;padding:6px 0;">
       <summary style="display:flex;align-items:center;gap:8px;">
         <span class="grow" style="flex:1;font-weight:600;">${esc(r.title)}</span>
-        <button class="del" onclick="event.preventDefault();mealAct({action:'deleteRecipe',recipeId:'${esc(r.id)}'})">✕</button>
+        <button type="button" class="del" onclick="event.preventDefault();event.stopPropagation();mealAct({action:'deleteRecipe',recipeId:'${esc(r.id)}'})">✕</button>
       </summary>
       <div style="font-size:14px;color:#4d535e;white-space:pre-wrap;margin:6px 0 4px;">${esc(r.ingredients || '')}${r.ingredients && r.steps ? '\n\n' : ''}${esc(r.steps || '')}</div>
     </details>`).join('') || '<div class="empty">No recipes yet</div>';
@@ -1368,6 +1546,8 @@ function setMeal(date, slot, text){
   const match = mealState.recipes.find(r => r.title.toLowerCase() === text.trim().toLowerCase());
   mealAct({action:'setMeal', date, slot, text: text.trim(), recipeId: match ? match.id : ''});
 }
+
+function clearMeal(date, slot){ mealAct({action:'setMeal', date, slot, text:'', recipeId:''}); }
 
 function addRecipe(){
   const title = document.getElementById('rcTitle').value.trim();
@@ -1528,6 +1708,16 @@ function applyAi(st){
 
 async function loadAi(){
   try { applyAi(await (await fetch('/api/ai')).json()); } catch(e){}
+}
+
+async function loadGotify(){
+  try { const s = await (await fetch('/api/gotify')).json(); document.getElementById('gotifyUrl').value = s.url || ''; } catch(e){}
+}
+async function saveGotify(){
+  try { const r = await fetch('/api/gotify',{method:'POST',body:JSON.stringify({url:document.getElementById('gotifyUrl').value,token:document.getElementById('gotifyToken').value})}); const b=await r.json(); if(!r.ok) throw new Error(b.error||'failed'); document.getElementById('gotifyToken').value=''; show('gotifyMsg','✓ Saved',true); } catch(e){ show('gotifyMsg',e.message,false); }
+}
+async function testGotify(){
+  try { const b=await (await fetch('/api/gotify/test',{method:'POST'})).json(); show('gotifyMsg',b.ok?'✓ Test sent':'Gotify is not configured or unreachable',b.ok); } catch(e){ show('gotifyMsg',e.message,false); }
 }
 
 async function aiPost(body, msgId){
@@ -2017,7 +2207,7 @@ function showWizard(){
 async function exitWizard(){
   try { await fetch('/api/setup', {method:'POST', body:'{}'}); } catch(e){}
   document.getElementById('wizard').style.display = 'none';
-  load(); loadSaver(); loadEffects(); loadFeatures(); loadSync(); loadWriters(); loadScale(); loadWx(); loadPin();
+  load(); loadSaver(); loadEffects(); loadFeatures(); loadSync(); loadSyncSettings(); loadWriters(); loadScale(); loadWx(); loadPin();
 }
 
 async function maybeStartWizard(){
@@ -2181,12 +2371,14 @@ loadSaver();
 loadEffects();
 loadFeatures();
 loadSync();
+loadSyncSettings();
 loadWriters();
 loadScale();
 loadWx();
 loadPin();
 loadLayout();
 loadAi();
+loadGotify();
 </script>
 </body>
 </html>

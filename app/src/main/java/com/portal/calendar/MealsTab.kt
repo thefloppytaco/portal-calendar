@@ -19,7 +19,7 @@ import kotlin.math.roundToInt
  */
 class MealsTab(
     private val ctx: Context,
-    private val showDetail: (title: String, body: String) -> Unit,
+    private val showDetail: (title: String, body: String, ingredients: String?, recipeId: String?) -> Unit,
     private val onPlanMeal: () -> Unit = {}
 ) {
 
@@ -129,21 +129,24 @@ class MealsTab(
                     textSize = 12f
                     setTextColor(FAINT)
                 }, lp())
-                col.addView(TextView(ctx).apply {
+                val mealRow = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                mealRow.addView(TextView(ctx).apply {
                     text = entry.optString("text").ifEmpty { "—" }
                     textSize = 13.5f
                     setTextColor(INK)
                     maxLines = 2
                     ellipsize = TextUtils.TruncateAt.END
-                    minimumHeight = dp(44) // the row IS the tap target for the recipe
+                    minimumHeight = dp(44)
                     gravity = Gravity.CENTER_VERTICAL
-                    run {
-                        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                        setOnClickListener {
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    setOnClickListener {
                             val r = Meals.recipe(ctx, entry.optString("recipeId"))
                             if (r != null) {
+                                val ing = r.optString("ingredients")
                                 showDetail(r.optString("title"), buildString {
-                                    val ing = r.optString("ingredients")
                                     val steps = r.optString("steps")
                                     if (ing.isNotEmpty()) append(ing)
                                     if (steps.isNotEmpty()) {
@@ -151,14 +154,27 @@ class MealsTab(
                                         append(steps)
                                     }
                                     if (isEmpty()) append("No details yet — add them on the page")
-                                })
+                                }, ing, entry.optString("recipeId").ifEmpty { null })
                             } else {
                                 showDetail(entry.optString("text"),
-                                    "Planned for ${slot.replaceFirstChar { c -> c.uppercase() }}")
+                                    "Planned for ${slot.replaceFirstChar { c -> c.uppercase() }}", null, null)
                             }
-                        }
                     }
-                }, lp(bottom = dp(8)))
+                }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                mealRow.addView(TextView(ctx).apply {
+                    text = "✕"
+                    textSize = 18f
+                    setTextColor(ACCENT)
+                    gravity = Gravity.CENTER
+                    setPadding(dp(8), 0, 0, 0)
+                    contentDescription = "Remove meal"
+                    setOnClickListener {
+                        Meals.mutate(ctx, org.json.JSONObject().put("action", "setMeal")
+                            .put("date", dayFmt.format(dayCal.time)).put("slot", slot).put("text", ""))
+                        render()
+                    }
+                }, LinearLayout.LayoutParams(WRAP, MATCH))
+                col.addView(mealRow, lp(bottom = dp(8)))
             }
             if (!anyMeal) {
                 col.addView(TextView(ctx).apply {

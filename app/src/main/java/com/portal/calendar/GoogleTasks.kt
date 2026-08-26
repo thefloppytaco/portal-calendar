@@ -36,6 +36,14 @@ object GoogleTasks {
 
     private val JSON_T = "application/json; charset=utf-8".toMediaType()
 
+    /** Groceries is deliberately independent from ordinary task syncing. */
+    private fun enabledForList(ctx: Context, list: JSONObject): Boolean {
+        val name = list.optString("name").trim().lowercase()
+        val groceries = name.contains("grocer") || name.contains("shopping")
+        return if (groceries) SyncSettings.googleGroceriesEnabled(ctx)
+        else SyncSettings.googleTasksEnabled(ctx)
+    }
+
     /** Everything one syncList pass wants to change, keyed for a fresh merge. */
     private class ListResult(val listId: String) {
         val deletesPushed = HashSet<String>()          // queue entries to clear
@@ -49,6 +57,9 @@ object GoogleTasks {
         if (!GoogleCal.isConnected(ctx))
             throw IllegalArgumentException("connect Google first (Settings → Two-way sync)")
         val name = find(Data.readArray(ctx, FILE), listId).optString("name")
+        val groceries = name.trim().lowercase().let { it.contains("grocer") || it.contains("shopping") }
+        val before = GoogleCal.currentAccountId(ctx)
+        if (groceries) GoogleCal.sharedAccountId(ctx)?.let { GoogleCal.activate(ctx, it) }
         val existing = taskLists(ctx).firstOrNull { it.second.equals(name, true) }
         val gid = existing?.first ?: run {
             val resp = call(ctx, "POST", "$API/users/@me/lists",
@@ -56,8 +67,12 @@ object GoogleTasks {
             resp.getString("id")
         }
         Data.mutate(ctx, FILE) { lists ->
-            findOrNull(lists, listId)?.put("gtasksId", gid)
+            findOrNull(lists, listId)?.apply {
+                put("gtasksId", gid)
+                (if (groceries) GoogleCal.sharedAccountId(ctx) else GoogleCal.currentAccountId(ctx))?.let { put("gtasksAccount", it) }
+            }
         }
+        before?.let { GoogleCal.activate(ctx, it) }
         syncAll(ctx)
     }
 
@@ -65,6 +80,7 @@ object GoogleTasks {
         Data.mutate(ctx, FILE) { lists ->
             val list = findOrNull(lists, listId) ?: return@mutate
             list.remove("gtasksId")
+            list.remove("gtasksAccount")
             list.remove("deletedGtaskIds")
             val items = list.optJSONArray("items") ?: JSONArray()
             for (i in 0 until items.length()) {
@@ -80,19 +96,29 @@ object GoogleTasks {
     fun syncAll(ctx: Context) {
         if (!GoogleCal.isConnected(ctx)) return
 
+        val initialAccount = GoogleCal.currentAccountId(ctx)
+
         // Phase 1: network reconcile against a snapshot (no lock held).
         val snapshot = Data.readArray(ctx, FILE)
         val results = ArrayList<ListResult>()
         for (li in 0 until snapshot.length()) {
             val list = snapshot.getJSONObject(li)
+            if (list.optBoolean("archived", false)) continue
             val gid = list.optString("gtasksId")
-            if (gid.isEmpty()) continue
+            if (gid.isEmpty() || !enabledForList(ctx, list)) continue
             try {
+                val groceries = list.optString("name").trim().lowercase().let { it.contains("grocer") || it.contains("shopping") }
+                val account = if (groceries) GoogleCal.sharedAccountId(ctx) else list.optString("gtasksAccount").takeIf { it.isNotBlank() }
+                account?.let {
+                    if (!GoogleCal.activate(ctx, it)) throw IllegalArgumentException("Google account profile is unavailable for this list")
+                }
                 results.add(syncList(ctx, list, gid))
             } catch (e: Exception) {
                 android.util.Log.w("PortalGTasks", "sync failed for ${list.optString("name")}", e)
             }
         }
+        // Keep the account the user was working with active after a multi-list pass.
+        initialAccount?.let { GoogleCal.activate(ctx, it) }
         if (results.isEmpty()) return
 
         // Phase 2: apply the deltas to FRESH state, atomically.

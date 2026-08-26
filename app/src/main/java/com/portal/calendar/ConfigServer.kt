@@ -1,6 +1,7 @@
 package com.portal.calendar
 
 import android.content.Context
+import android.os.StatFs
 import fi.iki.elonen.NanoHTTPD
 
 /**
@@ -17,23 +18,51 @@ class ConfigServer(
     private class BodyTooLarge : Exception("request body too large")
 
     override fun serve(session: IHTTPSession): Response = try {
-        route(session)
+        if (session.method == Method.OPTIONS) {
+            cors(newFixedLengthResponse(Response.Status.OK, "text/plain", ""))
+        } else cors(route(session))
     } catch (e: BodyTooLarge) {
         // The unread body is still on the socket — don't let keep-alive reuse it.
-        newFixedLengthResponse(Response.Status.PAYLOAD_TOO_LARGE, "application/json",
-            "{\"error\":\"request too large\"}").apply { addHeader("connection", "close") }
+        cors(newFixedLengthResponse(Response.Status.PAYLOAD_TOO_LARGE, "application/json",
+            "{\"error\":\"request too large\"}").apply { addHeader("connection", "close") })
     } catch (e: IllegalArgumentException) {
-        newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
-            "{\"error\":${jsonStr(e.message ?: "invalid input")}}")
+        cors(newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+            "{\"error\":${jsonStr(e.message ?: "invalid input")}}"))
     } catch (e: Exception) {
-        newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
-            "{\"error\":${jsonStr(e.message ?: e.javaClass.simpleName)}}")
+        cors(newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+            "{\"error\":${jsonStr(e.message ?: e.javaClass.simpleName)}}"))
+    }
+
+    private fun cors(response: Response): Response = response.apply {
+        addHeader("Access-Control-Allow-Origin", "*")
+        addHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        addHeader("Access-Control-Allow-Headers", "Content-Type")
     }
 
     private fun route(s: IHTTPSession): Response = when {
         s.uri == "/" || s.uri == "/index.html" -> {
             val html = ctx.assets.open("config.html").bufferedReader().readText()
             newFixedLengthResponse(Response.Status.OK, "text/html", html)
+        }
+        s.uri == "/history.html" -> {
+            val html = ctx.assets.open("history.html").bufferedReader().readText()
+            newFixedLengthResponse(Response.Status.OK, "text/html", html)
+        }
+        s.uri == "/api/health" && s.method == Method.GET ->
+            json(healthJson())
+        s.uri == "/api/health/action" && s.method == Method.POST -> {
+            when (org.json.JSONObject(readBody(s)).optString("action")) {
+                "sync" -> {
+                    App.instance.kickTasksSync(0)
+                    App.instance.notifyConfigChanged()
+                    json("{\"ok\":true,\"message\":\"Sync requested\"}")
+                }
+                "reassert" -> {
+                    App.instance.assertBoard()
+                    json("{\"ok\":true,\"message\":\"PortalHub brought to the foreground\"}")
+                }
+                else -> throw IllegalArgumentException("unknown health action")
+            }
         }
         s.uri == "/api/config" && s.method == Method.GET ->
             json(store.feedsJson())
@@ -72,6 +101,10 @@ class ConfigServer(
             json(FamilyLists.json(ctx))
         s.uri == "/api/lists" && s.method == Method.POST ->
             json(FamilyLists.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/shopping/command" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            json(FamilyLists.shoppingCommand(ctx, o.getString("operation"), o.getString("item")))
+        }
         s.uri == "/api/gtasks/link" && s.method == Method.POST -> {
             GoogleTasks.link(ctx, org.json.JSONObject(readBody(s)).getString("listId"))
             json(FamilyLists.json(ctx))
@@ -80,6 +113,10 @@ class ConfigServer(
             GoogleTasks.unlink(ctx, org.json.JSONObject(readBody(s)).getString("listId"))
             json(FamilyLists.json(ctx))
         }
+        s.uri == "/api/sync/settings" && s.method == Method.GET ->
+            json(SyncSettings.json(ctx))
+        s.uri == "/api/sync/settings" && s.method == Method.POST ->
+            json(SyncSettings.save(ctx, org.json.JSONObject(readBody(s))))
         s.uri == "/api/chores" && s.method == Method.GET ->
             json(Chores.statusJson(ctx))
         s.uri == "/api/chores" && s.method == Method.POST ->
@@ -88,10 +125,39 @@ class ConfigServer(
             json(Routines.statusJson(ctx))
         s.uri == "/api/routines" && s.method == Method.POST ->
             json(Routines.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/history" && s.method == Method.GET ->
+            json(org.json.JSONObject().put("chores", org.json.JSONObject(Chores.historyJson(ctx)))
+                .put("routines", org.json.JSONObject(Routines.historyJson(ctx))).toString())
+        s.uri == "/api/history" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            val kind = o.getString("kind")
+            if (kind == "chore") Chores.mutate(ctx, o) else if (kind == "routine") Routines.mutate(ctx, o)
+            else throw IllegalArgumentException("unknown history kind")
+            json("{\"ok\":true}")
+        }
+        s.uri == "/api/rewards" && s.method == Method.GET ->
+            json(Rewards.preview(ctx, s.parameters["memberId"]?.firstOrNull().orEmpty()))
+        s.uri == "/api/rewards/message" && s.method == Method.GET -> {
+            val memberId = s.parameters["memberId"]?.firstOrNull().orEmpty()
+            val portalUrl = s.parameters["portalUrl"]?.firstOrNull().orEmpty()
+            json(org.json.JSONObject().put("title", "FamilyHub approval")
+                .put("message", Rewards.approvalMessage(ctx, memberId, portalUrl)).toString())
+        }
+        s.uri == "/api/gotify" && s.method == Method.GET ->
+            json("{\"configured\":${Gotify.configured(ctx)},\"url\":${jsonStr(Gotify.url(ctx))}}")
+        s.uri == "/api/gotify" && s.method == Method.POST -> {
+            val o = org.json.JSONObject(readBody(s))
+            Gotify.save(ctx, o.getString("url"), o.optString("token").takeIf { it.isNotBlank() })
+            json("{\"ok\":true}")
+        }
+        s.uri == "/api/gotify/test" && s.method == Method.POST ->
+            json("{\"ok\":${Gotify.send(ctx, "FamilyHub test", "Gotify is connected to PortalHub.", 5)}}")
         s.uri == "/api/meals" && s.method == Method.GET ->
             json(Meals.statusJson(ctx))
         s.uri == "/api/meals" && s.method == Method.POST ->
             json(Meals.mutate(ctx, org.json.JSONObject(readBody(s))))
+        s.uri == "/api/recipe/groceries" && s.method == Method.POST ->
+            json(FamilyLists.addRecipeIngredients(ctx, org.json.JSONObject(readBody(s)).getString("ingredients")))
         s.uri == "/api/ai" && s.method == Method.GET ->
             json(Gemini.statusJson(ctx))
         s.uri == "/api/ai" && s.method == Method.POST -> {
@@ -181,11 +247,20 @@ class ConfigServer(
         }
         s.uri == "/api/google/begin" && s.method == Method.POST -> {
             val o = org.json.JSONObject(readBody(s))
+            GoogleCal.selectPendingAccount(ctx, o.optString("account").takeIf { it.isNotBlank() })
             val url = GoogleCal.begin(ctx, o.getString("clientId").trim(), o.getString("clientSecret").trim())
             json(org.json.JSONObject().put("authUrl", url).toString())
         }
         s.uri == "/api/google/code" && s.method == Method.POST -> {
             GoogleCal.finish(ctx, org.json.JSONObject(readBody(s)).getString("code"))
+            Writers.ensureDefault(ctx)
+            json(Writers.statusJson(ctx))
+        }
+        s.uri == "/api/google/accounts" && s.method == Method.GET ->
+            json(org.json.JSONObject().put("accounts", GoogleCal.accountsJson(ctx)).toString())
+        s.uri == "/api/google/activate" && s.method == Method.POST -> {
+            val id = org.json.JSONObject(readBody(s)).getString("id")
+            if (!GoogleCal.activate(ctx, id)) throw IllegalArgumentException("Google account profile not found")
             Writers.ensureDefault(ctx)
             json(Writers.statusJson(ctx))
         }
@@ -214,6 +289,10 @@ class ConfigServer(
             val o = org.json.JSONObject(readBody(s))
             val title = o.getString("title").trim()
             if (title.isEmpty()) throw IllegalArgumentException("the event needs a title")
+            val owner = o.optString("calendarOwner").trim()
+            if (owner.isEmpty()) throw IllegalArgumentException("choose whose calendar this belongs to")
+            if (!Writers.setTargetForOwner(ctx, owner))
+                throw IllegalArgumentException("no connected writable calendar is configured for $owner")
             val allDay = o.optBoolean("allDay", false)
             // optString turns a JSON null into the string "null" — normalize.
             val time = o.optString("time").takeIf { it.isNotEmpty() && it != "null" }
@@ -339,6 +418,32 @@ class ConfigServer(
 
     private fun json(body: String) =
         newFixedLengthResponse(Response.Status.OK, "application/json", body)
+
+    /** Non-secret diagnostics suitable for the local health page. */
+    private fun healthJson(): String {
+        val files = StatFs(ctx.filesDir.absolutePath)
+        val total = files.totalBytes.coerceAtLeast(0L)
+        val free = files.availableBytes.coerceAtLeast(0L)
+        val version = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0) }
+        return org.json.JSONObject()
+            .put("portalHub", org.json.JSONObject()
+                .put("ok", true)
+                .put("version", version.getOrNull()?.versionName ?: "unknown")
+                .put("versionCode", version.getOrNull()?.longVersionCode ?: 0L))
+            .put("storage", org.json.JSONObject()
+                .put("freeBytes", free)
+                .put("totalBytes", total)
+                .put("freePercent", if (total > 0) (free * 100.0 / total) else 0.0))
+            .put("gotify", Gotify.configured(ctx))
+            .put("googleCalendar", GoogleCal.isConnected(ctx))
+            .put("googleAccounts", GoogleCal.accountsJson(ctx).length())
+            .put("tailscaleInstalled", runCatching {
+                ctx.packageManager.getApplicationInfo("com.tailscale.ipn", 0)
+                true
+            }.getOrDefault(false))
+            .put("adbWireless", "Android 9 requires system/root control; app cannot enable it")
+            .toString()
+    }
 
     // org.json handles control characters too (raw \n in an error message
     // would otherwise produce an unparsable error response).

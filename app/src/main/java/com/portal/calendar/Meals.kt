@@ -119,7 +119,10 @@ object Meals {
     }
 
     private fun prune(arr: JSONArray) {
-        val cutoff = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -7) }
+        // Keep a useful meal-plan history instead of deleting older entries on every write.
+        // The web board only renders the upcoming week, but edits must not silently erase
+        // previously recorded plans; retain roughly three months for review and recovery.
+        val cutoff = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -90) }
         val cut = dayFmt().format(cutoff.time)
         for (i in arr.length() - 1 downTo 0)
             if (arr.getJSONObject(i).optString("date") < cut) arr.remove(i)

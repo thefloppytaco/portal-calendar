@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PortalHub</string>
+    <string name="jarvis_tools_summary">Add calendar events, chores, and family-list items in PortalHub using its configured AI.</string>
+    <string name="jarvis_tools"><![CDATA[
+[
+  {
+    "name": "com.portal.calendar.family_command",
+    "description": "Send a natural-language command to PortalHub to add or modify family calendar events, chores, groceries, or other list items. Use this whenever the user asks Jarvis to change information inside PortalHub.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The complete requested PortalHub change, retaining names, dates, times, durations, list names, and assignees."
+        }
+      },
+      "required": ["command"]
+    }
+  }
+]
+    ]]></string>
+</resources>
