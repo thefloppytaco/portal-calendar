@@ -32,14 +32,38 @@ class App : Application() {
     private val main = Handler(Looper.getMainLooper())
     private val configListeners = CopyOnWriteArraySet<() -> Unit>()
 
+    /** Set once onCreate has wired up store/sync/server — guards against a binder-thread
+     *  provider call() that lands mid-startup (instance set, dependencies not yet). */
+    @Volatile var ready = false
+
     /** The board currently on screen, if any — used for live scale preview. */
     var activeBoard: BoardController? = null
 
     /** Last synced events, so a rebuilt board paints instantly instead of empty. */
     @Volatile var lastEvents: List<EventInstance> = emptyList()
 
+    /** When [lastEvents] was last refreshed (epoch ms; 0 = never). Surfaced to the
+     *  assistant as `asOf` so it can judge staleness when the board isn't on screen. */
+    @Volatile var lastSyncAt: Long = 0L
+
+    /** Per-feed problems from the last sync (e.g. a feed that failed to fetch/parse), so the
+     *  assistant tool can note that the agenda may be missing a calendar. */
+    @Volatile var lastSyncProblems: List<String> = emptyList()
+
     fun onMain(block: () -> Unit) {
         main.post(block)
+    }
+
+    /** Publish a completed sync to the in-memory snapshot and persist it (off the main thread),
+     *  so a later cold start can answer from it without re-parsing every feed. A wholly-failed
+     *  sync (no events + problems) is not persisted, so it can't wipe the last good snapshot. */
+    fun publishSync(events: List<EventInstance>, at: Long, problems: List<String>) {
+        lastEvents = events
+        lastSyncAt = at
+        lastSyncProblems = problems
+        if (events.isNotEmpty() || problems.isEmpty()) {
+            Thread { runCatching { Snapshot.save(this, events, at, problems) } }.start()
+        }
     }
 
     override fun onCreate() {
@@ -47,6 +71,26 @@ class App : Application() {
         instance = this
         store = ConfigStore(this)
         sync = SyncManager(this, store)
+        // Prime from the last persisted agenda BEFORE marking ready, so a cold provider call
+        // answers instantly from the last good data instead of re-parsing every ICS cache.
+        Snapshot.load(this)?.let { snap ->
+            // Drop events (and the matching "Name: ..." problems) for feeds no longer configured,
+            // so a removed/renamed calendar isn't resurrected on a cold start. Adopt the "as of"
+            // only when usable events remain, else leave it 0 so the tool refreshes.
+            val names = store.feeds().filter { it.kind != "inbox" }.map { it.name }.toSet()
+            val events = snap.events.filter { it.feedName in names }
+            if (events.isNotEmpty()) {
+                lastEvents = events
+                lastSyncAt = snap.syncedAt
+                lastSyncProblems = snap.problems.filter {
+                    val feed = it.substringBefore(": ", "")
+                    feed.isEmpty() || feed in names
+                }
+            }
+        }
+        // The assistant tool only needs store + sync — mark ready now so a cold provider
+        // call isn't blocked (or wedged) by the peripheral startup that follows.
+        ready = true
         server = ConfigServer(this, store) { notifyConfigChanged() }
         try {
             server?.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, true)
@@ -144,5 +188,11 @@ class App : Application() {
 
     companion object {
         lateinit var instance: App
+
+        /** Null until [onCreate] has fully run — a ContentProvider call() can land on a
+         *  binder thread mid-startup, before `instance` or its deps are set. Gated on
+         *  [ready] so callers never see a half-initialized App. */
+        fun instanceOrNull(): App? =
+            if (::instance.isInitialized && instance.ready) instance else null
     }
 }

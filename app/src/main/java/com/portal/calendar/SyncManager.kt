@@ -42,31 +42,70 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
 
     fun requestSync(onDone: (events: List<EventInstance>, problems: List<String>) -> Unit) {
         executor.execute {
-            val feeds = store.feeds()
             val all = ArrayList<EventInstance>()
             val problems = ArrayList<String>()
-            // CalDAV servers that didn't answer at all during this pass (connect/timeout, not an
-            // HTTP error). Feeds run one after another, so without this a dead server would cost
-            // a full connect timeout per calendar and stall the whole refresh.
-            val unreachable = HashSet<String>()
-            for (feed in feeds) {
-                val text = fetchWithCache(feed, problems, unreachable) ?: continue
-                try {
-                    if (feed.kind == "inbox") processInbox(text)
-                    else all.addAll(parseFeed(text, feed))
-                } catch (e: Exception) {
-                    problems.add("${feed.name}: unreadable feed (${e.javaClass.simpleName})")
+            // onDone must ALWAYS fire (in the finally): callers gate state on it — e.g. the
+            // assistant tool's "refresh in flight" flag would latch forever if a throw in
+            // store.feeds()/sort skipped the callback.
+            try {
+                // CalDAV servers that didn't answer at all during this pass (connect/timeout, not an
+                // HTTP error). Feeds run one after another, so without this a dead server would cost
+                // a full connect timeout per calendar and stall the whole refresh.
+                val unreachable = HashSet<String>()
+                for (feed in store.feeds()) {
+                    val text = fetchWithCache(feed, problems, unreachable) ?: continue
+                    try {
+                        if (feed.kind == "inbox") processInbox(text)
+                        else all.addAll(parseFeed(text, feed))
+                    } catch (e: Exception) {
+                        problems.add("${feed.name}: unreadable feed (${e.javaClass.simpleName})")
+                    }
                 }
+                all.sortBy { it.start }
+            } catch (e: Exception) {
+                problems.add("sync failed (${e.javaClass.simpleName})")
+            } finally {
+                main.post { onDone(all, problems) }
             }
-            all.sortBy { it.start }
-            main.post { onDone(all, problems) }
         }
+    }
+
+    /** The on-disk offline copy of a feed (one shared naming scheme for read and write). */
+    private fun cacheFile(feed: FeedConfig): File =
+        File(ctx.filesDir, "feed_" + md5(feed.url) + ".ics")
+
+    /**
+     * Parses events straight from the on-disk feed caches — no network, no callback.
+     * Used by the assistant tool provider so a voice query can answer synchronously
+     * within its timeout budget even when the board hasn't run a sync this process.
+     * Returns whatever feeds have a cached copy (empty list if none cached yet);
+     * any feed whose cache won't parse is reported via [problems], not silently dropped.
+     *
+     * Read-only: passes runCommands=false so a voice query never executes magic-word
+     * commands (creating chores/lists) as a side effect — that belongs to a real sync.
+     */
+    fun eventsFromCache(problems: MutableList<String>): List<EventInstance> {
+        val out = ArrayList<EventInstance>()
+        for (feed in store.feeds()) {
+            if (feed.kind == "inbox") continue // commands, never rendered
+            val cache = cacheFile(feed)
+            if (!cache.exists()) {
+                // Never synced this device yet — distinct from "unreadable" so the caller can
+                // tell the model the calendar hasn't loaded rather than that it's broken.
+                problems.add("${feed.name}: no saved data yet")
+                continue
+            }
+            runCatching { out.addAll(parseFeed(cache.readText(), feed, runCommands = false)) }
+                .onFailure { problems.add("${feed.name}: cached copy unreadable") }
+        }
+        out.sortBy { it.start }
+        return out
     }
 
     /** Network first; on failure falls back to the last good copy on disk. */
     private fun fetchWithCache(feed: FeedConfig, problems: MutableList<String>,
                                unreachable: MutableSet<String>): String? {
-        val cache = File(ctx.filesDir, "feed_" + md5(feed.url) + ".ics")
+        val cache = cacheFile(feed)
         val origin = if (feed.source == "caldav") CalDavXml.originOf(feed.url) else null
         try {
             if (origin != null && origin in unreachable)   // already timed out on this server: straight to the cache
@@ -114,7 +153,7 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
         }
     }
 
-    private fun parseFeed(text: String, feed: FeedConfig): List<EventInstance> {
+    private fun parseFeed(text: String, feed: FeedConfig, runCommands: Boolean = true): List<EventInstance> {
         val out = ArrayList<EventInstance>()
         val tz = TimeZone.getDefault()
         val now = System.currentTimeMillis()
@@ -142,15 +181,17 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
                 val evUid = e.uid?.value ?: ""
                 if (evUid.isNotEmpty() && evUid in suppressed) continue // deleted from the board
 
-                // Magic-word events route to lists/chores and never render.
+                // Magic-word events route to lists/chores and never render. Executing
+                // them is a write, so only a real sync (runCommands) does it — a
+                // read-only cache parse just skips them.
                 val magic = MagicWords.match(e.summary?.value ?: "")
                 if (magic != null) {
-                    val uid = e.uid?.value ?: (feed.url + (e.summary?.value ?: ""))
-                    // Mark AFTER a successful execute so a failed command
-                    // retries next sync instead of being consumed silently.
-                    if (!MagicWords.isProcessed(ctx, uid)) {
-                        runCatching { MagicWords.execute(ctx, magic, ds.value.time) }
-                            .onSuccess { MagicWords.markProcessed(ctx, uid) }
+                    if (runCommands) {
+                        val uid = e.uid?.value ?: (feed.url + (e.summary?.value ?: ""))
+                        if (!MagicWords.isProcessed(ctx, uid)) {
+                            runCatching { MagicWords.execute(ctx, magic, ds.value.time) }
+                                .onSuccess { MagicWords.markProcessed(ctx, uid) }
+                        }
                     }
                     continue
                 }
@@ -280,7 +321,7 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
             .joinToString("") { "%02x".format(it) }
 
     companion object {
-        const val DAY_MS = 86_400_000L
+        const val DAY_MS = CalendarQuery.DAY_MS // single source of the ms-per-day constant
         /** Events are expanded from this many days back to this many days ahead (CalDAV fetches the same span). */
         const val WINDOW_PAST_DAYS = 35L
         const val WINDOW_FUTURE_DAYS = 180L

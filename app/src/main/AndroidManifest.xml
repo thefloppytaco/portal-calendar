@@ -42,6 +42,21 @@
             android:name=".KeepAliveService"
             android:exported="false" />
 
+        <!-- Read-only calendar agenda for the Portal assistant. Exported so the
+             assistant can discover + call it; returns agenda text (titles/times/
+             locations/people), never the secret iCal URLs. See CalendarToolProvider. -->
+        <provider
+            android:name=".CalendarToolProvider"
+            android:authorities="com.portal.calendar.tools"
+            android:exported="true">
+            <meta-data
+                android:name="com.portal.assistant.tools"
+                android:value="@string/portal_tools" />
+            <meta-data
+                android:name="com.portal.assistant.tools.summary"
+                android:value="@string/portal_tools_summary" />
+        </provider>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
