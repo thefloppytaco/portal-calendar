@@ -37,6 +37,6 @@ dependencies {
   // CalDAV (PROPFIND/PUT) — HttpURLConnection can't send PROPFIND.
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-  // JVM unit tests for the CalDAV parsing/HTTP code (app/src/test).
+  // JVM unit tests for pure logic (CalDAV parsing/HTTP, IcsFilter).
   testImplementation("junit:junit:4.13.2")
 }

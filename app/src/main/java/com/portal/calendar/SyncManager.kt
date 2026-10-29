@@ -71,9 +71,11 @@ class SyncManager(private val ctx: Context, private val store: ConfigStore) {
         try {
             if (origin != null && origin in unreachable)   // already timed out on this server: straight to the cache
                 throw CalDavUnreachable(CalDavXml.hostOf(feed.url), "couldn't reach ${CalDavXml.hostOf(feed.url)}")
-            val text = if (feed.source == "caldav") CalDav.fetchIcs(ctx, feed.url) else fetchIcsText(feed.url)
-            if (!text.contains("BEGIN:VCALENDAR"))
+            val raw = if (feed.source == "caldav") CalDav.fetchIcs(ctx, feed.url) else fetchIcsText(feed.url)
+            if (!raw.contains("BEGIN:VCALENDAR"))
                 throw RuntimeException("not an iCal feed")
+            // Drop properties the board never reads before caching/parsing (see IcsFilter).
+            val text = IcsFilter.keepNeededProperties(raw)
             // Atomic: a crash mid-write must not corrupt the offline copy.
             val tmp = File(cache.path + ".tmp")
             tmp.writeText(text)
